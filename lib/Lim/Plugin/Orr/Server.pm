@@ -2,10 +2,9 @@ package Lim::Plugin::Orr::Server;
 
 use common::sense;
 
-use Fcntl qw(:seek);
-use IO::File ();
-use Digest::SHA ();
 use Scalar::Util qw(weaken);
+use UUID ();
+use AnyEvent::DBI ();
 
 use Lim::Plugin::Orr ();
 
@@ -26,6 +25,22 @@ See L<Lim::Plugin::Orr> for version.
 =cut
 
 our $VERSION = $Lim::Plugin::Orr::VERSION;
+
+our $READY = 0;
+
+our $DBI_DSN = 'dbi:SQLite:dbname=orr.db';
+our $DBI_USER = '';
+our $DBI_PASSWORD = '';
+our @DBI = (
+    $DBI_DSN,
+    $DBI_USER,
+    $DBI_PASSWORD,
+    RaiseError => 0,
+    PrintError => 0,
+    mysql_auto_reconnect => 0,
+    mysql_enable_utf8 => 1,
+    sqlite_unicode => 1
+);
 
 =head1 SYNOPSIS
 
@@ -61,7 +76,34 @@ Please see L<Lim::Plugin::Orr> for full documentation of calls.
 
 sub Init {
     my $self = shift;
-    my %args = ( @_ );
+    my $real_self = $self;
+    weaken($self);
+    
+    my $dbh; $dbh = AnyEvent::DBI->new(
+        @DBI,
+        on_error => sub {
+            my (undef, undef, undef, $fatal) = @_;
+            
+            $self->{logger}->error('Init() failed, database error: ', $@);
+            undef $dbh;
+        },
+        on_connect => sub {
+            my (undef, $success) = @_;
+            
+            unless (defined $self) {
+                undef $dbh;
+                return;
+            }
+            
+            unless ($success) {
+                $self->{logger}->error('Init() Unable to connect to database: ', $@);
+                undef $dbh;
+                return;
+            }
+            
+            $READY = 1;
+            undef $dbh;
+        });
 }
 
 =item $server->Destroy
@@ -69,6 +111,157 @@ sub Init {
 =cut
 
 sub Destroy {
+    $READY = 0;
+}
+
+=item $server->ReadNodes
+
+=cut
+
+sub ReadNodes {
+    my ($self, $cb) = @_;
+    
+    unless ($READY) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->CreateNode
+
+=cut
+
+sub CreateNode {
+    my ($self, $cb) = @_;
+    
+    unless ($READY) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->ReadNode
+
+=cut
+
+sub ReadNode {
+    my ($self, $cb) = @_;
+    
+    unless ($READY) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->UpdateNode
+
+=cut
+
+sub UpdateNode {
+    my ($self, $cb) = @_;
+    
+    unless ($READY) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->DeleteNode
+
+=cut
+
+sub DeleteNode {
+    my ($self, $cb) = @_;
+    
+    unless ($READY) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->ReadZones
+
+=cut
+
+sub ReadZones {
+    my ($self, $cb) = @_;
+    
+    unless ($READY) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->CreateZone
+
+=cut
+
+sub CreateZone {
+    my ($self, $cb) = @_;
+    
+    unless ($READY) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->ReadZone
+
+=cut
+
+sub ReadZone {
+    my ($self, $cb) = @_;
+    
+    unless ($READY) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->UpdateZone
+
+=cut
+
+sub UpdateZone {
+    my ($self, $cb) = @_;
+    
+    unless ($READY) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->DeleteZone
+
+=cut
+
+sub DeleteZone {
+    my ($self, $cb) = @_;
+    
+    unless ($READY) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
 }
 
 =back

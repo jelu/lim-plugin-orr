@@ -73,6 +73,121 @@ See CALLS for list of calls and arguments.
 
 sub Calls {
     {
+        #
+        # Nodes
+        #
+        ReadNodes => {
+            out => {
+                node => {
+                    uuid => 'string',
+                    uri => 'string',
+                    state => 'string'
+                }
+            }
+        },
+        CreateNode => {
+            in => {
+                node => {
+                    '' => 'required',
+                    uri => 'string'
+                }
+            },
+            out => {
+                node => {
+                    uuid => 'string',
+                    uri => 'string'
+                }
+            }
+        },
+        ReadNode => {
+            in => {
+                node => {
+                    '' => 'required',
+                    uuid => 'string'
+                }
+            },
+            out => {
+                node => {
+                    uuid => 'string',
+                    uri => 'string',
+                    state => 'string'
+                }
+            }
+        },
+        UpdateNode => {
+            in => {
+                node => {
+                    '' => 'required',
+                    uuid => 'string',
+                    uri => 'string optional',
+                    state => 'string optional'
+                }
+            }
+        },
+        DeleteNode => {
+            in => {
+                node => {
+                    '' => 'required',
+                    uuid => 'string'
+                }
+            }
+        },
+        #
+        # Zones
+        #
+        ReadZones => {
+            out => {
+                zone => {
+                    uuid => 'string',
+                    name => 'string'
+                }
+            }
+        },
+        CreateZone => {
+            in => {
+                zone => {
+                    '' => 'required',
+                    name => 'string'
+                }
+            },
+            out => {
+                zone => {
+                    uuid => 'string',
+                    name => 'string'
+                }
+            }
+        },
+        ReadZone => {
+            in => {
+                zone => {
+                    '' => 'required',
+                    name => 'string'
+                }
+            },
+            out => {
+                zone => {
+                    uuid => 'string',
+                    name => 'string'
+                }
+            }
+        },
+        UpdateZone => {
+            in => {
+                zone => {
+                    '' => 'required',
+                    uuid => 'string',
+                    name => 'string'
+                }
+            }
+        },
+        DeleteZone => {
+            in => {
+                zone => {
+                    '' => 'required',
+                    uuid => 'string'
+                }
+            }
+        },
     };
 }
 
