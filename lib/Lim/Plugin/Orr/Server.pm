@@ -17,7 +17,7 @@ use base qw(Lim::Component::Server);
 
 =head1 NAME
 
-...
+Lim::Plugin::Orr::Server - Server class for OpenDNSSEC Redundancy Robot Lim plugin
 
 =head1 VERSION
 
@@ -29,11 +29,33 @@ our $VERSION = $Lim::Plugin::Orr::VERSION;
 
 =head1 SYNOPSIS
 
-...
+  use Lim::Plugin::Orr;
 
-=head1 SUBROUTINES/METHODS
+  # Create a Server object
+  $server = Lim::Plugin::Orr->Server;
 
-=head2 Init
+=head1 CONFIGURATION
+
+TODO
+
+=head1 INTERNAL METHODS
+
+These are only internal methods and should not be used externally.
+
+=over 4
+
+=back
+
+=head1 METHODS
+
+These methods are called from the Lim framework and should not be used else
+where.
+
+Please see L<Lim::Plugin::Orr> for full documentation of calls.
+
+=over 4
+
+=item $server->Init
 
 =cut
 
@@ -42,12 +64,14 @@ sub Init {
     my %args = ( @_ );
 }
 
-=head2 Destroy
+=item $server->Destroy
 
 =cut
 
 sub Destroy {
 }
+
+=back
 
 =head1 AUTHOR
 
@@ -77,7 +101,7 @@ L<https://github.com/jelu/lim-plugin-orr/issues>
 
 =head1 LICENSE AND COPYRIGHT
 
-Copyright 2012-2013 Jerry Lundström.
+Copyright 2013 Jerry Lundström.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of either: the GNU General Public License as published

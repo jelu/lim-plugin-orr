@@ -8,7 +8,7 @@ use base qw(Lim::Component);
 
 =head1 NAME
 
-Lim::Plugin::Orr - Orr management plugin for Lim
+Lim::Plugin::Orr - OpenDNSSEC Redundancy Robot
 
 =head1 VERSION
 
@@ -33,7 +33,10 @@ our $VERSION = '0.10';
 
 =head1 DESCRIPTION
 
-This plugin lets you manage a Orr installation via Lim.
+Orr can be configured to manage DNS, OpenDNSSEC and SoftHSM plugins in various
+ways to create a redundant DNSSEC system. For example you can configure Orr to
+setup a backup/failover system or make a signing cluster that will load balance
+the work.
 
 =head1 METHODS
 
@@ -56,7 +59,7 @@ Returns the plugin's description.
 =cut
 
 sub Description {
-    '...';
+    'Manage a redundant DNSSEC system with OpenDNSSEC Redundancy Robot';
 }
 
 =item $call_hash_ref = Lim::Plugin::Orr->Calls
@@ -131,7 +134,7 @@ L<https://github.com/jelu/lim-plugin-orr/issues>
 
 =head1 LICENSE AND COPYRIGHT
 
-Copyright 2012-2013 Jerry Lundström.
+Copyright 2013 Jerry Lundström.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of either: the GNU General Public License as published

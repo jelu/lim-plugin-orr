@@ -13,7 +13,7 @@ use base qw(Lim::Component::CLI);
 
 =head1 NAME
 
-...
+Lim::Plugin::Orr::CLI - CLI class for OpenDNSSEC Redundancy Robot Lim plugin
 
 =head1 VERSION
 
@@ -25,9 +25,21 @@ our $VERSION = $Lim::Plugin::Orr::VERSION;
 
 =head1 SYNOPSIS
 
-...
+  use Lim::Plugin::Orr;
+  
+  # Create a CLI object
+  $cli = Lim::Plugin::Orr->CLI;
 
-=head1 SUBROUTINES/METHODS
+=head1 METHODS
+
+These methods are called from the Lim framework and should not be used else
+where.
+
+Please see L<Lim::Plugin::Orr> for full documentation of calls.
+
+=over 4
+
+=back
 
 =head1 AUTHOR
 
@@ -57,7 +69,7 @@ L<https://github.com/jelu/lim-plugin-orr/issues>
 
 =head1 LICENSE AND COPYRIGHT
 
-Copyright 2012-2013 Jerry Lundström.
+Copyright 2013 Jerry Lundström.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of either: the GNU General Public License as published

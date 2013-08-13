@@ -10,7 +10,7 @@ use base qw(Lim::Component::Client);
 
 =head1 NAME
 
-...
+Lim::Plugin::Orr::Client - Client class for OpenDNSSEC Redundancy Robot Lim plugin
 
 =head1 VERSION
 
@@ -22,13 +22,16 @@ our $VERSION = $Lim::Plugin::Orr::VERSION;
 
 =head1 SYNOPSIS
 
-...
+  use Lim::Plugin::Orr;
 
-=head1 SUBROUTINES/METHODS
+  # Create a Client object
+  $client = Lim::Plugin::Orr->Client;
 
-=head2 function1
+=head1 METHODS
 
-=cut
+All methods are auto generated from the call definitions.
+
+See L<Lim::Plugin::Orr> for list of calls and arguments.
 
 =head1 AUTHOR
 
@@ -58,7 +61,7 @@ L<https://github.com/jelu/lim-plugin-orr/issues>
 
 =head1 LICENSE AND COPYRIGHT
 
-Copyright 2012-2013 Jerry Lundström.
+Copyright 2013 Jerry Lundström.
 
 This program is free software; you can redistribute it and/or modify it
 under the terms of either: the GNU General Public License as published
