@@ -1,0 +1,49 @@
+Source: liblim-plugin-orr-perl
+Section: perl
+Priority: optional
+Build-Depends: debhelper (>= 7)
+Build-Depends-Indep: libcommon-sense-perl (>= 3), perl,
+ perl (>= 5.10.0) | libdigest-sha-perl (>= 5),
+ liblim-server-perl (>= 0.16-1~unstable+1),
+ liblim-cli-perl (>= 0.16-1~unstable+1)
+Maintainer: Jerry Lundström <lundstrom.jerry@gmail.com>
+Standards-Version: 3.9.1
+Homepage: http://github.com/jelu/lim-plugin-orr/wiki
+
+Package: liblim-plugin-orr-common-perl
+Architecture: all
+Depends: ${misc:Depends}, ${perl:Depends},
+ liblim-common-perl (>= 0.16-1~unstable+1), libcommon-sense-perl (>= 3), perl,
+ perl (>= 5.10.0) | libdigest-sha-perl (>= 5)
+Description: Common perl libraries for Orr Lim plugin
+ Common perl libraries for Orr Lim plugin.
+
+Package: liblim-plugin-orr-server-perl
+Architecture: all
+Depends: ${misc:Depends}, ${perl:Depends},
+ liblim-plugin-orr-common-perl (= 0.14-1~unstable+1),
+ liblim-server-perl (>= 0.16-1~unstable+1)
+Description: Server perl libraries for Orr Lim plugin
+ Server perl libraries for Orr Lim plugin.
+
+Package: liblim-plugin-orr-client-perl
+Architecture: all
+Depends: ${misc:Depends}, ${perl:Depends},
+ liblim-plugin-orr-common-perl (= 0.14-1~unstable+1)
+Description: Client perl libraries for Orr Lim plugin
+ Client perl libraries for communicating with the Orr Lim plugin.
+
+Package: liblim-plugin-orr-cli-perl
+Architecture: all
+Depends: ${misc:Depends}, ${perl:Depends},
+ liblim-cli-perl (>= 0.16-1~unstable+1),
+ liblim-plugin-orr-client-perl (= 0.14-1~unstable+1)
+Description: CLI perl libraries for Orr Lim plugin
+ CLI perl libraries for controlling a local or remote Orr installation
+ via Orr Lim plugin.
+
+Package: lim-management-console-orr
+Architecture: all
+Depends: ${misc:Depends}, lim-management-console-common (>= 0.16-1~unstable+1)
+Description: Orr Lim plugin Management Console files
+ Orr Lim plugin Management Console files.
