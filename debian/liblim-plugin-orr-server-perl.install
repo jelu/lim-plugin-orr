@@ -1,2 +1,4 @@
 usr/share/perl5/Lim/Plugin/Orr/Server.pm
 usr/share/man/man3/Lim::Plugin::Orr::Server.3pm
+usr/share/perl5/Lim/Plugin/Orr/Server/DB.pm
+usr/share/man/man3/Lim::Plugin::Orr::Server::DB.3pm

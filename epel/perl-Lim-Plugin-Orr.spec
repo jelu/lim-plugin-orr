@@ -96,6 +96,8 @@ rm -rf $RPM_BUILD_ROOT
 %defattr(-,root,root,-)
 %{_mandir}/man3/Lim::Plugin::Orr::Server.3*
 %{perl_vendorlib}/Lim/Plugin/Orr/Server.pm
+%{_mandir}/man3/Lim::Plugin::Orr::Server::DB.3*
+%{perl_vendorlib}/Lim/Plugin/Orr/Server/DB.pm
 
 %files -n perl-Lim-Plugin-Orr-Client
 %defattr(-,root,root,-)

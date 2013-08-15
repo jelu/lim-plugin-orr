@@ -10,7 +10,7 @@ use Lim::Plugin::Orr ();
 
 use Lim::Util ();
 
-use base qw(Lim::Component::Server);
+use base qw(Lim::Component::Server Lim::Plugin::Orr::Server::DB);
 
 =encoding utf8
 
@@ -101,8 +101,14 @@ sub Init {
                 return;
             }
             
-            $READY = 1;
-            undef $dbh;
+            $self->dbSetup($dbh, sub {
+                my ($success) = @_;
+                
+                if ($success) {
+                    $READY = 1;
+                }
+                undef $dbh;
+            });
         });
 }
 
