@@ -42,6 +42,8 @@ existing database if there is a new version.
 
 sub dbSetup {
     my ($self, $dbh, $cb) = @_;
+    my $real_self = $self;
+    weaken($self);
     
     unless (ref($cb) eq 'CODE') {
         confess '$cb is not CODE';
@@ -52,8 +54,139 @@ sub dbSetup {
         $cb->();
         return;
     }
+
+    $dbh->exec('SELECT version FROM version',
+        sub {
+            my ($dbh, $rows, $rv) = @_;
+            
+            unless (defined $self) {
+                $cb->();
+                undef $cb;
+                return;
+            }
+            
+            unless ($rv and ref($rows) eq 'ARRAY') {
+                $self->dbCreate($dbh, $cb);
+                undef $cb;
+                return;
+            }
+
+            unless (scalar @$rows == 1 and ref($rows->[0]) eq 'ARRAY' and scalar @{$rows->[0]} == 1) {
+                $@ = 'Database schema error, no version information.';
+                $cb->();
+                undef $cb;
+                return;
+            }
+
+            if ($rows->[0]->[0] gt $VERSION) {
+                $@ = 'Database schema error, version is larger then plugin.';
+                $cb->();
+                undef $cb;
+                return;
+            }
+            
+            if ($rows->[0]->[0] lt $VERSION) {
+                $self->dbUpgrade($dbh, $cb, $rows->[0]->[0]);
+                undef $cb;
+                return;
+            }
+
+            $cb->(1);
+            undef $cb;
+            return;
+        });
+}
+
+=item dbCreate
+
+=cut
+
+our @__tables = (
+    'CREATE TABLE version ( version varchar(16) not null, primary key (version) )'
+);
+
+our @__data = (
+    [ 'INSERT INTO version ( version ) VALUES ( ? )', $VERSION ]
+);
+
+sub dbCreate {
+    my ($self, $dbh, $cb) = @_;
+    my $real_self = $self;
+    weaken($self);
+
+    my @tables = @__tables;
+    my @data = @__data;
+    my $code; $code = sub {
+        my ($dbh) = @_;
+        
+        unless (defined $self) {
+            $cb->();
+            undef $cb;
+            return;
+        }
+        
+        if (defined (my $table = shift(@tables))) {
+            $dbh->exec($table,
+                sub {
+                    my ($dbh, undef, $rv) = @_;
+                    
+                    unless (defined $self) {
+                        $cb->();
+                        undef $cb;
+                        return;
+                    }
+                    
+                    unless ($rv) {
+                        $@ = 'Database creation failed, unable to create table: '.$@;
+                        $cb->();
+                        undef $cb;
+                        return;
+                    }
+                    
+                    $code->($dbh);
+                });
+            return;
+        }
+        
+        if (defined (my $data = shift(@data))) {
+            $dbh->exec(@$data,
+                sub {
+                    my ($dbh, undef, $rv) = @_;
+                    
+                    unless (defined $self) {
+                        $cb->();
+                        undef $cb;
+                        return;
+                    }
+                    
+                    unless ($rv) {
+                        $@ = 'Database creation failed, unable to populate table: '.$@;
+                        $cb->();
+                        undef $cb;
+                        return;
+                    }
+                    
+                    $code->($dbh);
+                });
+            return;
+        }
+        
+        $cb->(1);
+        undef $cb;
+        return;
+    };
+    $code->($dbh);
+}
+
+=item dbUpgrade
+
+=cut
+
+sub dbUpgrade {
+    my ($self, $dbh, $cb) = @_;
+    my $real_self = $self;
+    weaken($self);
     
-    $cb->(1);
 }
 
 =back

@@ -82,10 +82,6 @@ sub Init {
     my $dbh; $dbh = AnyEvent::DBI->new(
         @DBI,
         on_error => sub {
-            my (undef, undef, undef, $fatal) = @_;
-            
-            $self->{logger}->error('Init() failed, database error: ', $@);
-            undef $dbh;
         },
         on_connect => sub {
             my (undef, $success) = @_;
@@ -104,8 +100,16 @@ sub Init {
             $self->dbSetup($dbh, sub {
                 my ($success) = @_;
                 
+                unless (defined $self) {
+                    undef $dbh;
+                    return;
+                }
+                
                 if ($success) {
                     $READY = 1;
+                }
+                else {
+                    $self->{logger}->error('Init() Unable to setup database: ', $@);
                 }
                 undef $dbh;
             });
