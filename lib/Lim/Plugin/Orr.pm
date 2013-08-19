@@ -139,7 +139,7 @@ sub Calls {
             out => {
                 zone => {
                     uuid => 'string',
-                    name => 'string'
+                    filename => 'string'
                 }
             }
         },
@@ -147,13 +147,13 @@ sub Calls {
             in => {
                 zone => {
                     '' => 'required',
-                    name => 'string'
+                    filename => 'string'
                 }
             },
             out => {
                 zone => {
                     uuid => 'string',
-                    name => 'string'
+                    filename => 'string'
                 }
             }
         },
@@ -161,13 +161,13 @@ sub Calls {
             in => {
                 zone => {
                     '' => 'required',
-                    name => 'string'
+                    filename => 'string'
                 }
             },
             out => {
                 zone => {
                     uuid => 'string',
-                    name => 'string'
+                    filename => 'string'
                 }
             }
         },
@@ -176,7 +176,7 @@ sub Calls {
                 zone => {
                     '' => 'required',
                     uuid => 'string',
-                    name => 'string'
+                    filename => 'string'
                 }
             }
         },

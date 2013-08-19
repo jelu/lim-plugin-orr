@@ -7,10 +7,16 @@ use UUID ();
 use AnyEvent::DBI ();
 
 use Lim::Plugin::Orr ();
+use Lim::Plugin::DNS ();
+use Lim::Plugin::OpenDNSSEC ();
+use Lim::Plugin::SoftHSM ();
 
 use Lim::Util ();
 
-use base qw(Lim::Component::Server Lim::Plugin::Orr::Server::DB);
+use base qw(
+ Lim::Component::Server
+ Lim::Plugin::Orr::Server::DB
+ Lim::Plugin::Orr::Server::NodeWatcher);
 
 =encoding utf8
 
@@ -59,6 +65,25 @@ These are only internal methods and should not be used externally.
 
 =over 4
 
+=item _Ready
+
+=cut
+
+sub _Ready {
+    my ($self) = @_;
+    
+    $READY = 1;
+    $self->NodeWatcherTimer(0);
+}
+
+=item _isReady
+
+=cut
+
+sub _isReady {
+    return $READY ? 1 : 0;
+}
+
 =back
 
 =head1 METHODS
@@ -75,10 +100,10 @@ Please see L<Lim::Plugin::Orr> for full documentation of calls.
 =cut
 
 sub Init {
-    my $self = shift;
+    my ($self) = @_;
     my $real_self = $self;
     weaken($self);
-    
+
     my $dbh; $dbh = AnyEvent::DBI->new(
         @DBI,
         on_error => sub {
@@ -97,7 +122,7 @@ sub Init {
                 return;
             }
             
-            $self->dbSetup($dbh, sub {
+            $self->DbSetup($dbh, sub {
                 my ($success) = @_;
                 
                 unless (defined $self) {
@@ -106,7 +131,7 @@ sub Init {
                 }
                 
                 if ($success) {
-                    $READY = 1;
+                    $self->_Ready;
                 }
                 else {
                     $self->{logger}->error('Init() Unable to setup database: ', $@);
@@ -121,7 +146,10 @@ sub Init {
 =cut
 
 sub Destroy {
+    my ($self) = @_;
+    
     $READY = 0;
+    $self->NodeWatcherStop;
 }
 
 =item $server->ReadNodes
@@ -131,7 +159,7 @@ sub Destroy {
 sub ReadNodes {
     my ($self, $cb) = @_;
     
-    unless ($READY) {
+    unless ($self->_isReady) {
         $self->Error($cb, 'Orr is not ready or shutting down');
         return;
     }
@@ -146,7 +174,7 @@ sub ReadNodes {
 sub CreateNode {
     my ($self, $cb) = @_;
     
-    unless ($READY) {
+    unless ($self->_isReady) {
         $self->Error($cb, 'Orr is not ready or shutting down');
         return;
     }
@@ -161,7 +189,7 @@ sub CreateNode {
 sub ReadNode {
     my ($self, $cb) = @_;
     
-    unless ($READY) {
+    unless ($self->_isReady) {
         $self->Error($cb, 'Orr is not ready or shutting down');
         return;
     }
@@ -176,7 +204,7 @@ sub ReadNode {
 sub UpdateNode {
     my ($self, $cb) = @_;
     
-    unless ($READY) {
+    unless ($self->_isReady) {
         $self->Error($cb, 'Orr is not ready or shutting down');
         return;
     }
@@ -191,7 +219,7 @@ sub UpdateNode {
 sub DeleteNode {
     my ($self, $cb) = @_;
     
-    unless ($READY) {
+    unless ($self->_isReady) {
         $self->Error($cb, 'Orr is not ready or shutting down');
         return;
     }
@@ -206,7 +234,7 @@ sub DeleteNode {
 sub ReadZones {
     my ($self, $cb) = @_;
     
-    unless ($READY) {
+    unless ($self->_isReady) {
         $self->Error($cb, 'Orr is not ready or shutting down');
         return;
     }
@@ -221,7 +249,7 @@ sub ReadZones {
 sub CreateZone {
     my ($self, $cb) = @_;
     
-    unless ($READY) {
+    unless ($self->_isReady) {
         $self->Error($cb, 'Orr is not ready or shutting down');
         return;
     }
@@ -236,7 +264,7 @@ sub CreateZone {
 sub ReadZone {
     my ($self, $cb) = @_;
     
-    unless ($READY) {
+    unless ($self->_isReady) {
         $self->Error($cb, 'Orr is not ready or shutting down');
         return;
     }
@@ -251,7 +279,7 @@ sub ReadZone {
 sub UpdateZone {
     my ($self, $cb) = @_;
     
-    unless ($READY) {
+    unless ($self->_isReady) {
         $self->Error($cb, 'Orr is not ready or shutting down');
         return;
     }
@@ -266,7 +294,7 @@ sub UpdateZone {
 sub DeleteZone {
     my ($self, $cb) = @_;
     
-    unless ($READY) {
+    unless ($self->_isReady) {
         $self->Error($cb, 'Orr is not ready or shutting down');
         return;
     }

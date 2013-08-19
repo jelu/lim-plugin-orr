@@ -33,14 +33,14 @@ These methods handles the database for OpenDNSSEC Redundancy Robot.
 
 =over 4
 
-=item dbSetup
+=item DbSetup
 
 Setup the database, create all the tables if they dont exist or upgrade an
 existing database if there is a new version.
 
 =cut
 
-sub dbSetup {
+sub DbSetup {
     my ($self, $dbh, $cb) = @_;
     my $real_self = $self;
     weaken($self);
@@ -66,7 +66,7 @@ sub dbSetup {
             }
             
             unless ($rv and ref($rows) eq 'ARRAY') {
-                $self->dbCreate($dbh, $cb);
+                $self->DbCreate($dbh, $cb);
                 undef $cb;
                 return;
             }
@@ -86,7 +86,7 @@ sub dbSetup {
             }
             
             if ($rows->[0]->[0] lt $VERSION) {
-                $self->dbUpgrade($dbh, $cb, $rows->[0]->[0]);
+                $self->DbUpgrade($dbh, $cb, $rows->[0]->[0]);
                 undef $cb;
                 return;
             }
@@ -97,25 +97,37 @@ sub dbSetup {
         });
 }
 
-=item dbCreate
+=item DbCreate
 
 =cut
 
 our @__tables = (
-    'CREATE TABLE version ( version varchar(16) not null, primary key (version) )'
+    'CREATE TABLE version ( version varchar(16) not null, primary key (version) )',
+    'CREATE TABLE nodes ( node_uuid varchar(36) not null, node_uri varchar(255) not null, node_state varchar(16) not null, primary key (node_uuid) )',
+    'CREATE TABLE zones ( zone_uuid varchar(36) not null, zone_filename varchar(255) not null, primary key (zone_uuid), unique (zone_filename) )'
 );
 
+sub __uuid {
+    my ($uuid, $string);
+    UUID::generate($uuid);
+    UUID::unparse($uuid, $string);
+    return $string;
+}
+
 our @__data = (
+    [ 'INSERT INTO nodes ( node_uuid, node_uri, node_state ) VALUES ( ?, ?, "" )', __uuid, 'http://172.16.21.91:5353' ],
+    [ 'INSERT INTO nodes ( node_uuid, node_uri, node_state ) VALUES ( ?, ?, "" )', __uuid, 'http://172.16.21.92:5353' ],
     [ 'INSERT INTO version ( version ) VALUES ( ? )', $VERSION ]
 );
 
-sub dbCreate {
+sub DbCreate {
     my ($self, $dbh, $cb) = @_;
     my $real_self = $self;
     weaken($self);
 
     my @tables = @__tables;
     my @data = @__data;
+    my $transaction = 0;
     my $code; $code = sub {
         my ($dbh) = @_;
         
@@ -148,6 +160,29 @@ sub dbCreate {
             return;
         }
         
+        unless ($transaction) {
+            $dbh->begin_work(sub {
+                my ($dbh, $rc) = @_;
+                
+                unless (defined $self) {
+                    $cb->();
+                    undef $cb;
+                    return;
+                }
+                
+                unless ($rc) {
+                    $@ = 'Database creation failed, unable to start transaction: '.$@;
+                    $cb->();
+                    undef $cb;
+                    return;
+                }
+                
+                $transaction = 1;
+                $code->($dbh);
+            });
+            return;
+        }
+        
         if (defined (my $data = shift(@data))) {
             $dbh->exec(@$data,
                 sub {
@@ -170,19 +205,36 @@ sub dbCreate {
                 });
             return;
         }
-        
-        $cb->(1);
-        undef $cb;
+
+        $dbh->commit(sub {
+            my ($dbh, $rc) = @_;
+            
+            unless (defined $self) {
+                $cb->();
+                undef $cb;
+                return;
+            }
+            
+            unless ($rc) {
+                $@ = 'Database creation failed, unable to commit transaction: '.$@;
+                $cb->();
+                undef $cb;
+                return;
+            }
+            
+            $cb->(1);
+            undef $cb;
+        });
         return;
     };
     $code->($dbh);
 }
 
-=item dbUpgrade
+=item DbUpgrade
 
 =cut
 
-sub dbUpgrade {
+sub DbUpgrade {
     my ($self, $dbh, $cb) = @_;
     my $real_self = $self;
     weaken($self);
