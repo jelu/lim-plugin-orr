@@ -4,19 +4,14 @@ use common::sense;
 
 use Scalar::Util qw(weaken);
 use UUID ();
-use AnyEvent::DBI ();
 
 use Lim::Plugin::Orr ();
-use Lim::Plugin::DNS ();
-use Lim::Plugin::OpenDNSSEC ();
-use Lim::Plugin::SoftHSM ();
+use Lim::Plugin::Orr::Server::DB ();
+use Lim::Plugin::Orr::Server::NodeWatcher ();
 
 use Lim::Util ();
 
-use base qw(
- Lim::Component::Server
- Lim::Plugin::Orr::Server::DB
- Lim::Plugin::Orr::Server::NodeWatcher);
+use base qw(Lim::Component::Server);
 
 =encoding utf8
 
@@ -73,7 +68,7 @@ sub _Ready {
     my ($self) = @_;
     
     $READY = 1;
-    $self->NodeWatcherTimer(0);
+    $self->{node_watcher}->Timer(0);
 }
 
 =item _isReady
@@ -104,40 +99,26 @@ sub Init {
     my $real_self = $self;
     weaken($self);
 
-    my $dbh; $dbh = AnyEvent::DBI->new(
-        @DBI,
-        on_error => sub {
-        },
+    $self->{node_watcher} = Lim::Plugin::Orr::Server::NodeWatcher->new;
+    
+    my $db; $db = Lim::Plugin::Orr::Server::DB->new(
+        dsn => $DBI_DSN,
+        user => $DBI_USER,
+        password => $DBI_PASSWORD,
         on_connect => sub {
-            my (undef, $success) = @_;
+            my ($success) = @_;
             
             unless (defined $self) {
-                undef $dbh;
                 return;
             }
             
-            unless ($success) {
-                $self->{logger}->error('Init() Unable to connect to database: ', $@);
-                undef $dbh;
-                return;
+            if ($success) {
+                $self->{db} = $db;
+                $self->_Ready;
             }
-            
-            $self->DbSetup($dbh, sub {
-                my ($success) = @_;
-                
-                unless (defined $self) {
-                    undef $dbh;
-                    return;
-                }
-                
-                if ($success) {
-                    $self->_Ready;
-                }
-                else {
-                    $self->{logger}->error('Init() Unable to setup database: ', $@);
-                }
-                undef $dbh;
-            });
+            else {
+                $self->{logger}->error('Init() Unable to connect/setup database: ', $@);
+            }
         });
 }
 
@@ -149,7 +130,8 @@ sub Destroy {
     my ($self) = @_;
     
     $READY = 0;
-    $self->NodeWatcherStop;
+    delete $self->{db};
+    delete $self->{node_watcher};
 }
 
 =item $server->ReadNodes

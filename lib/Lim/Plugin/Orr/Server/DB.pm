@@ -5,6 +5,8 @@ use common::sense;
 use Carp;
 use Scalar::Util qw(weaken blessed);
 use UUID ();
+use AnyEvent::DBI ();
+use Log::Log4perl ();
 
 use Lim::Plugin::Orr ();
 
@@ -12,8 +14,8 @@ use Lim::Plugin::Orr ();
 
 =head1 NAME
 
-Lim::Plugin::Orr::Server::DB - Database functions for the server class of the
-OpenDNSSEC Redundancy Robot Lim plugin
+Lim::Plugin::Orr::Server::DB - Database layer for the OpenDNSSEC Redundancy
+Robot Lim plugin
 
 =head1 VERSION
 
@@ -25,7 +27,13 @@ our $VERSION = $Lim::Plugin::Orr::VERSION;
 
 =head1 SYNOPSIS
 
-  use base qw(Lim::Plugin::Orr::Server::DB);
+  use Lim::Plugin::Orr::Server::DB;
+  
+  my $db = Lim::Plugin::Orr::Server::DB->new(...);
+
+=head1 DESCRIPTION
+
+This is the database layer for the OpenDNSSEC Redundancy Robot.
 
 =head1 METHODS
 
@@ -33,14 +41,121 @@ These methods handles the database for OpenDNSSEC Redundancy Robot.
 
 =over 4
 
-=item DbSetup
+=item $db = Lim::Plugin::Orr::Server::DB->new(key => value...);
+
+Create a new Database object for the OpenDNSSEC Redundancy Robot.
+
+=over 4
+
+=item dns
+
+=item user
+
+=item password
+
+=item on_connect
+
+=back
+
+=cut
+
+sub new {
+    my $this = shift;
+    my $class = ref($this) || $this;
+    my %args = ( @_ );
+    my $self = {
+        logger => Log::Log4perl->get_logger
+    };
+    bless $self, $class;
+    my $real_self = $self;
+    weaken($self);
+
+    unless (defined $args{dsn}) {
+        confess __PACKAGE__, ': Missing dsn';
+    }
+    unless (defined $args{user}) {
+        confess __PACKAGE__, ': Missing user';
+    }
+    unless (defined $args{password}) {
+        confess __PACKAGE__, ': Missing password';
+    }
+    unless (ref($args{on_connect}) eq 'CODE') {
+        confess __PACKAGE__, ': on_connect is not CODE';
+    }
+    
+    $self->{dsn} = $args{dsn};
+    $self->{user} = $args{user};
+    $self->{password} = $args{password};
+    my $dbh; $dbh = $self->dbh(sub {
+        my (undef, $success) = @_;
+        
+        unless (defined $self) {
+            undef $dbh;
+            return;
+        }
+        
+        $self->Setup($dbh, sub {
+            unless (defined $self) {
+                undef $dbh;
+                return;
+            }
+            
+            $args{on_connect}->(@_);
+            undef $dbh;
+        });
+    });
+
+    Lim::OBJ_DEBUG and $self->{logger}->debug('new ', __PACKAGE__, ' ', $self);
+    $real_self;
+}
+
+sub DESTROY {
+    my ($self) = @_;
+    Lim::OBJ_DEBUG and $self->{logger}->debug('destroy ', __PACKAGE__, ' ', $self);
+    
+    delete $self->{dbh};
+}
+
+=item dbh
+
+=cut
+
+sub dbh {
+    my ($self, $on_connect, $on_error) = @_;
+    
+    unless (ref($on_connect) eq 'CODE') {
+        confess __PACKAGE__, ': Missing on_connect';
+    }
+    if (defined $on_error and ref($on_error) ne 'CODE') {
+        confess __PACKAGE__, ': on_error is not CODE';
+    }
+    
+    my $dbh; $dbh = AnyEvent::DBI->new(
+        $self->{dsn},
+        $self->{user},
+        $self->{password},
+        RaiseError => 0,
+        PrintError => 0,
+        mysql_auto_reconnect => 0,
+        mysql_enable_utf8 => 1,
+        sqlite_unicode => 1,
+        (defined $on_error ? (on_error => $on_error) : ()),
+        on_connect => $on_connect
+        );
+
+    Lim::DEBUG and $self->{logger}->debug('new dbh ', $dbh);
+    
+    return $dbh;
+}
+
+=item Setup
 
 Setup the database, create all the tables if they dont exist or upgrade an
 existing database if there is a new version.
 
 =cut
 
-sub DbSetup {
+sub Setup {
     my ($self, $dbh, $cb) = @_;
     my $real_self = $self;
     weaken($self);
@@ -55,6 +170,8 @@ sub DbSetup {
         return;
     }
 
+    Lim::DEBUG and $self->{logger}->debug('Setting up database');
+    
     $dbh->exec('SELECT version FROM version',
         sub {
             my ($dbh, $rows, $rv) = @_;
@@ -66,7 +183,8 @@ sub DbSetup {
             }
             
             unless ($rv and ref($rows) eq 'ARRAY') {
-                $self->DbCreate($dbh, $cb);
+                Lim::DEBUG and $self->{logger}->debug('No version found, creating database');
+                $self->Create($dbh, $cb);
                 undef $cb;
                 return;
             }
@@ -86,18 +204,20 @@ sub DbSetup {
             }
             
             if ($rows->[0]->[0] lt $VERSION) {
-                $self->DbUpgrade($dbh, $cb, $rows->[0]->[0]);
+                Lim::DEBUG and $self->{logger}->debug('Database version ', $rows->[0]->[0], ' is less then ', $VERSION, ', upgrading');
+                $self->Upgrade($dbh, $cb, $rows->[0]->[0]);
                 undef $cb;
                 return;
             }
 
+            Lim::DEBUG and $self->{logger}->debug('Database is current version ', $VERSION);
             $cb->(1);
             undef $cb;
             return;
         });
 }
 
-=item DbCreate
+=item Create
 
 =cut
 
@@ -120,10 +240,20 @@ our @__data = (
     [ 'INSERT INTO version ( version ) VALUES ( ? )', $VERSION ]
 );
 
-sub DbCreate {
+sub Create {
     my ($self, $dbh, $cb) = @_;
     my $real_self = $self;
     weaken($self);
+
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+    
+    unless (blessed $dbh and $dbh->isa('AnyEvent::DBI')) {
+        $@ = '$dbh is not AnyEvent::DBI';
+        $cb->();
+        return;
+    }
 
     my @tables = @__tables;
     my @data = @__data;
@@ -222,6 +352,7 @@ sub DbCreate {
                 return;
             }
             
+            Lim::DEBUG and $self->{logger}->debug('Database created');
             $cb->(1);
             undef $cb;
         });
@@ -230,15 +361,24 @@ sub DbCreate {
     $code->($dbh);
 }
 
-=item DbUpgrade
+=item Upgrade
 
 =cut
 
-sub DbUpgrade {
+sub Upgrade {
     my ($self, $dbh, $cb) = @_;
     my $real_self = $self;
     weaken($self);
+
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
     
+    unless (blessed $dbh and $dbh->isa('AnyEvent::DBI')) {
+        $@ = '$dbh is not AnyEvent::DBI';
+        $cb->();
+        return;
+    }
 }
 
 =back

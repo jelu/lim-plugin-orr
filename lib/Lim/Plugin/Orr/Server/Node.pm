@@ -1,21 +1,23 @@
-package Lim::Plugin::Orr::Server::NodeWatcher;
+package Lim::Plugin::Orr::Server::Node;
 
 use common::sense;
 
 use Carp;
-use Scalar::Util qw(weaken blessed);
-use AnyEvent ();
+use Scalar::Util qw(weaken);
 use Log::Log4perl ();
 
 use Lim::Plugin::Orr ();
-use Lim::Plugin::Orr::Server::Node ();
+
+use Lim::Plugin::DNS ();
+use Lim::Plugin::OpenDNSSEC ();
+use Lim::Plugin::SoftHSM ();
 
 =encoding utf8
 
 =head1 NAME
 
-Lim::Plugin::Orr::Server::NodeWatcher - Node Watcher for the OpenDNSSEC
-Redundancy Robot Lim plugin
+Lim::Plugin::Orr::Server::Node - Node functions for the OpenDNSSEC Redundancy
+Robot Lim plugin
 
 =head1 VERSION
 
@@ -25,16 +27,14 @@ See L<Lim::Plugin::Orr> for version.
 
 our $VERSION = $Lim::Plugin::Orr::VERSION;
 
-our $NODE_WATCHER_TIMER = 30;
-
 =head1 SYNOPSIS
 
-  use base qw(Lim::Plugin::Orr::Server::NodeWatcher);
+  use base qw(Lim::Plugin::Orr::Server::Node);
 
 =head1 DESCRIPTION
 
-This is a Node Watcher for the OpenDNSSEC Redundancy Robot that will handle node
-actions such as syncing information between nodes.
+This is the node layer for the OpenDNSSEC Redundancy Robot that will make the
+actuall calls to the nodes.
 
 =head1 METHODS
 
@@ -59,8 +59,7 @@ sub new {
     my $class = ref($this) || $this;
     my %args = ( @_ );
     my $self = {
-        logger => Log::Log4perl->get_logger,
-        node => {}
+        logger => Log::Log4perl->get_logger
     };
     bless $self, $class;
 
@@ -71,49 +70,6 @@ sub new {
 sub DESTROY {
     my ($self) = @_;
     Lim::OBJ_DEBUG and $self->{logger}->debug('destroy ', __PACKAGE__, ' ', $self);
-    
-    $self->Stop;
-}
-
-=item Timer
-
-=cut
-
-sub Timer {
-    my ($self, $after) = @_;
-    my $real_self = $self;
-    weaken($self);
-
-    $self->{timer} = AnyEvent->timer(
-        after => defined $after ? $after : $NODE_WATCHER_TIMER,
-        cb => sub {
-            defined $self and $self->Run;
-        });
-}
-
-=item Stop
-
-=cut
-
-sub Stop {
-    my ($self) = @_;
-
-    $self->{logger}->debug('Stop()');
-    
-    delete $self->{timer};
-}
-
-=item Run
-
-=cut
-
-sub Run {
-    my ($self) = @_;
-    
-    $self->{logger}->debug('Run() start');
-    $self->{logger}->debug('Run() done');
-
-    $self->Timer;
 }
 
 =back
@@ -157,4 +113,4 @@ See http://dev.perl.org/licenses/ for more information.
 
 =cut
 
-1; # End of Lim::Plugin::Orr::Server::NodeWatcher
+1; # End of Lim::Plugin::Orr::Server::Node
