@@ -24,12 +24,27 @@ These are the components within Orr and a description on what they do.
     and upgrade.
 
   Lim::Plugin::Orr::Server::NodeWatcher
-    The main logic component, it starts several event watchers to
+    The main node logic component, it starts several event watchers to
     manage the nodes and synchronize data between them.
 
   Lim::Plugin::Orr::Server::Node
     A node communication component, it simplifies communication with all
     the different plugins on the nodes. Used mainly by the NodeWatcher.
+
+  Lim::Plugin::Orr::Server::ClusterManager
+    The main cluster logic component, it will feed the NodeWatcher what it
+    needs to do with the nodes.
+
+  Lim::Plugin::Orr::Server::ZoneInput
+    Component to gather the zone data/content from other external sources.
+
+CLUSTER MODES
+
+**description to be written**
+
+  BACKUP
+  FAILOVER
+  BALANCE
 
 INSTALLATION
 

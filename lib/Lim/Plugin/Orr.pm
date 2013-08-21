@@ -79,9 +79,9 @@ sub Calls {
         ReadNodes => {
             out => {
                 node => {
-                    uuid => 'string',
-                    uri => 'string',
-                    state => 'string'
+                    node_uuid => 'string',
+                    node_uri => 'string',
+                    node_state => 'string'
                 }
             }
         },
@@ -89,13 +89,13 @@ sub Calls {
             in => {
                 node => {
                     '' => 'required',
-                    uri => 'string'
+                    node_uri => 'string'
                 }
             },
             out => {
                 node => {
-                    uuid => 'string',
-                    uri => 'string'
+                    node_uuid => 'string',
+                    node_uri => 'string'
                 }
             }
         },
@@ -103,14 +103,14 @@ sub Calls {
             in => {
                 node => {
                     '' => 'required',
-                    uuid => 'string'
+                    node_uuid => 'string'
                 }
             },
             out => {
                 node => {
-                    uuid => 'string',
-                    uri => 'string',
-                    state => 'string'
+                    node_uuid => 'string',
+                    node_uri => 'string',
+                    node_state => 'string'
                 }
             }
         },
@@ -118,9 +118,9 @@ sub Calls {
             in => {
                 node => {
                     '' => 'required',
-                    uuid => 'string',
-                    uri => 'string optional',
-                    state => 'string optional'
+                    node_uuid => 'string',
+                    node_uri => 'string optional',
+                    node_state => 'string optional'
                 }
             }
         },
@@ -128,7 +128,7 @@ sub Calls {
             in => {
                 node => {
                     '' => 'required',
-                    uuid => 'string'
+                    node_uuid => 'string'
                 }
             }
         },
@@ -138,8 +138,10 @@ sub Calls {
         ReadZones => {
             out => {
                 zone => {
-                    uuid => 'string',
-                    filename => 'string'
+                    zone_uuid => 'string',
+                    zone_filename => 'string',
+                    zone_input_type => 'string',
+                    zone_input_data => 'string'
                 }
             }
         },
@@ -147,13 +149,15 @@ sub Calls {
             in => {
                 zone => {
                     '' => 'required',
-                    filename => 'string'
+                    zone_filename => 'string',
+                    zone_input_type => 'string',
+                    zone_input_data => 'string'
                 }
             },
             out => {
                 zone => {
-                    uuid => 'string',
-                    filename => 'string'
+                    zone_uuid => 'string',
+                    zone_filename => 'string'
                 }
             }
         },
@@ -161,13 +165,16 @@ sub Calls {
             in => {
                 zone => {
                     '' => 'required',
-                    filename => 'string'
+                    zone_uuid => 'string optional',
+                    zone_filename => 'string optional'
                 }
             },
             out => {
                 zone => {
-                    uuid => 'string',
-                    filename => 'string'
+                    zone_uuid => 'string',
+                    zone_filename => 'string',
+                    zone_input_type => 'string',
+                    zone_input_data => 'string'
                 }
             }
         },
@@ -175,8 +182,10 @@ sub Calls {
             in => {
                 zone => {
                     '' => 'required',
-                    uuid => 'string',
-                    filename => 'string'
+                    zone_uuid => 'string',
+                    zone_filename => 'string',
+                    zone_input_type => 'string',
+                    zone_input_data => 'string'
                 }
             }
         },
@@ -184,7 +193,166 @@ sub Calls {
             in => {
                 zone => {
                     '' => 'required',
-                    uuid => 'string'
+                    zone_uuid => 'string'
+                }
+            }
+        },
+        #
+        # Clusters
+        #
+        ReadClusters => {
+            out => {
+                cluster => {
+                    cluster_uuid => 'string',
+                    cluster_mode => 'string'
+                }
+            }
+        },
+        CreateCluster => {
+            in => {
+                cluster => {
+                    '' => 'required',
+                    cluster_mode => 'string'
+                }
+            },
+            out => {
+                cluster => {
+                    cluster_uuid => 'string'
+                }
+            }
+        },
+        ReadCluster => {
+            in => {
+                cluster => {
+                    '' => 'required',
+                    cluster_uuid => 'string'
+                }
+            },
+            out => {
+                cluster => {
+                    cluster_uuid => 'string',
+                    cluster_mode => 'string'
+                }
+            }
+        },
+        UpdateCluster => {
+            in => {
+                cluster => {
+                    '' => 'required',
+                    cluster_uuid => 'string',
+                    cluster_mode => 'string'
+                }
+            }
+        },
+        DeleteCluster => {
+            in => {
+                cluster => {
+                    '' => 'required',
+                    cluster_uuid => 'string'
+                }
+            }
+        },
+        #
+        # ClusterNodes
+        #
+        ReadClusterNodes => {
+            in => {
+                cluster_node => {
+                    cluster_uuid => 'string optional',
+                    node_uuid => 'string optional'
+                }
+            },
+            out => {
+                cluster_node => {
+                    cluster_uuid => 'string',
+                    node_uuid => 'string'
+                }
+            }
+        },
+        CreateClusterNode => {
+            in => {
+                cluster_node => {
+                    '' => 'required',
+                    cluster_uuid => 'string',
+                    node_uuid => 'string'
+                }
+            }
+        },
+        ReadClusterNode => {
+            in => {
+                cluster_node => {
+                    '' => 'required',
+                    cluster_uuid => 'string',
+                    node_uuid => 'string'
+                }
+            },
+            out => {
+                cluster_node => {
+                    cluster_uuid => 'string',
+                    node_uuid => 'string'
+                }
+            }
+        },
+        # We do not update cluster nodes
+        # UpdateClusterNode => {},
+        DeleteClusterNode => {
+            in => {
+                cluster_node => {
+                    '' => 'required',
+                    cluster_uuid => 'string',
+                    node_uuid => 'string'
+                }
+            }
+        },
+        #
+        # ClusterZones
+        #
+        ReadClusterZones => {
+            in => {
+                cluster_zone => {
+                    cluster_uuid => 'string optional',
+                    zone_uuid => 'string optional'
+                }
+            },
+            out => {
+                cluster_zone => {
+                    cluster_uuid => 'string',
+                    zone_uuid => 'string'
+                }
+            }
+        },
+        CreateClusterZone => {
+            in => {
+                cluster_zone => {
+                    '' => 'required',
+                    cluster_uuid => 'string',
+                    zone_uuid => 'string'
+                }
+            }
+        },
+        ReadClusterZone => {
+            in => {
+                cluster_zone => {
+                    '' => 'required',
+                    cluster_uuid => 'string',
+                    zone_uuid => 'string'
+                }
+            },
+            out => {
+                cluster_zone => {
+                    cluster_uuid => 'string',
+                    zone_uuid => 'string'
+                }
+            }
+        },
+        # We do not update cluster zones
+        # UpdateClusterZone => {},
+        DeleteClusterZone => {
+            in => {
+                cluster_zone => {
+                    '' => 'required',
+                    cluster_uuid => 'string',
+                    zone_uuid => 'string'
                 }
             }
         },

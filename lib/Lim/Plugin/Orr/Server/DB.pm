@@ -7,6 +7,7 @@ use Scalar::Util qw(weaken blessed);
 use UUID ();
 use AnyEvent::DBI ();
 use Log::Log4perl ();
+use JSON::XS ();
 
 use Lim::Plugin::Orr ();
 
@@ -41,7 +42,7 @@ These methods handles the database for OpenDNSSEC Redundancy Robot.
 
 =over 4
 
-=item $db = Lim::Plugin::Orr::Server::DB->new(key => value...);
+=item $db = Lim::Plugin::Orr::Server::DB->new(...);
 
 Create a new Database object for the OpenDNSSEC Redundancy Robot.
 
@@ -142,7 +143,7 @@ sub dbh {
         sqlite_unicode => 1,
         on_error => defined $on_error ? $on_error : sub {},
         on_connect => $on_connect
-        );
+    );
 
     Lim::DEBUG and $self->{logger}->debug('new dbh ', $dbh);
     
@@ -215,9 +216,49 @@ sub Setup {
 =cut
 
 our @__tables = (
-    'CREATE TABLE version ( version varchar(16) not null, primary key (version) )',
-    'CREATE TABLE nodes ( node_uuid varchar(36) not null, node_uri varchar(255) not null, primary key (node_uuid) )',
-    'CREATE TABLE zones ( zone_uuid varchar(36) not null, zone_filename varchar(255) not null, primary key (zone_uuid), unique (zone_filename) )'
+'CREATE TABLE version (
+  version varchar(16) not null,
+  
+  primary key (version)
+)',
+'CREATE TABLE nodes (
+  node_uuid varchar(36) not null,
+  
+  node_uri varchar(255) not null,
+
+  primary key (node_uuid)
+)',
+'CREATE TABLE zones (
+  zone_uuid varchar(36) not null,
+  
+  zone_filename varchar(255) not null,
+  zone_input_type varchar(64) not null,
+  zone_input_data text not null,
+  
+  primary key (zone_uuid),
+  unique (zone_filename)
+)',
+'CREATE TABLE clusters (
+  cluster_uuid varchar(36) not null,
+  
+  cluster_mode varchar(16) not null,
+  
+  primary key (cluster_uuid)
+)',
+'CREATE TABLE cluster_node (
+  cluster_uuid varchar(36) not null,
+  node_uuid varchar(36) not null,
+  
+  primary key (cluster_uuid, node_uuid)
+)',
+'CREATE INDEX node_uuid_index ON cluster_node (node_uuid)',
+'CREATE TABLE cluster_zone (
+  cluster_uuid varchar(36) not null,
+  zone_uuid varchar(36) not null,
+  
+  primary key (cluster_uuid, zone_uuid),
+  unique (zone_uuid)
+)'
 );
 
 sub __uuid {
@@ -230,6 +271,10 @@ sub __uuid {
 our @__data = (
     [ 'INSERT INTO nodes ( node_uuid, node_uri ) VALUES ( ?, ? )', __uuid, 'http://172.16.21.91:5353' ],
     [ 'INSERT INTO nodes ( node_uuid, node_uri ) VALUES ( ?, ? )', __uuid, 'http://172.16.21.92:5353' ],
+    [ 'INSERT INTO zones ( zone_uuid, zone_filename, zone_input_type, zone_input_data ) VALUES ( ?, ?, "Lim::Plugin::DNS", ? )', __uuid, 'example.com', JSON::XS->new->ascii->encode({host => '172.16.21.90', port => 5353, software => 'BIND'}) ],
+    [ 'INSERT INTO clusters ( cluster_uuid, cluster_mode ) VALUES ( ?, ? )', __uuid, 'BACKUP' ],
+    [ 'INSERT INTO cluster_node SELECT cluster_uuid, node_uuid FROM clusters, nodes' ],
+    [ 'INSERT INTO cluster_zone SELECT cluster_uuid, zone_uuid FROM clusters, zones' ],
     [ 'INSERT INTO version ( version ) VALUES ( ? )', $VERSION ]
 );
 
@@ -268,6 +313,7 @@ sub Create {
                 }
                 
                 unless ($rv) {
+                    Lim::DEBUG and $self->{logger}->debug($table);
                     $@ = 'Database creation failed, unable to create table: '.$@;
                     $cb->();
                     return;
@@ -309,6 +355,7 @@ sub Create {
                 }
                 
                 unless ($rv) {
+                    Lim::DEBUG and $self->{logger}->debug(join(' ', @$data));
                     $@ = 'Database creation failed, unable to populate table: '.$@;
                     $cb->();
                     return;
@@ -377,6 +424,7 @@ sub NodeList {
         my (undef, $success) = @_;
         
         unless (defined $self and $success) {
+            $@ = 'Database error'; # TODO better error
             $cb->();
             undef $dbh;
             return;
@@ -386,6 +434,7 @@ sub NodeList {
             my (undef, $rows, $rv) = @_;
             
             unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
+                $@ = 'Database error'; # TODO better error
                 $cb->();
                 undef $dbh;
                 return;
@@ -398,6 +447,7 @@ sub NodeList {
                         node_uri => $_->[1]
                     };
                 } else {
+                    $@ = 'Database error'; # TODO better error
                     $cb->();
                     undef $dbh;
                     return;
@@ -406,7 +456,337 @@ sub NodeList {
             undef $dbh;
         });
     });
+}
+
+=item ZoneList
+
+=cut
+
+sub ZoneList {
+    my ($self, $cb) = @_;
+    weaken($self);
     
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+    
+    my $dbh; $dbh = $self->dbh(sub {
+        my (undef, $success) = @_;
+        
+        unless (defined $self and $success) {
+            $@ = 'Database error'; # TODO better error
+            $cb->();
+            undef $dbh;
+            return;
+        }
+        
+        $dbh->exec('SELECT zone_uuid, zone_filename FROM zones', sub {
+            my (undef, $rows, $rv) = @_;
+            
+            unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
+                $@ = 'Database error'; # TODO better error
+                $cb->();
+                undef $dbh;
+                return;
+            }
+            
+            $cb->(map {
+                if (ref($_) eq 'ARRAY') {
+                    {
+                        zone_uuid => $_->[0],
+                        zone_filename => $_->[1]
+                    };
+                } else {
+                    $@ = 'Database error'; # TODO better error
+                    $cb->();
+                    undef $dbh;
+                    return;
+                }
+            } @$rows);
+            undef $dbh;
+        });
+    });
+}
+
+=item ClusterList
+
+=cut
+
+sub ClusterList {
+    my ($self, $cb) = @_;
+    weaken($self);
+    
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+    
+    my $dbh; $dbh = $self->dbh(sub {
+        my (undef, $success) = @_;
+        
+        unless (defined $self and $success) {
+            $@ = 'Database error'; # TODO better error
+            $cb->();
+            undef $dbh;
+            return;
+        }
+        
+        $dbh->exec('SELECT cluster_uuid, cluster_mode FROM clusters', sub {
+            my (undef, $rows, $rv) = @_;
+            
+            unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
+                $@ = 'Database error'; # TODO better error
+                $cb->();
+                undef $dbh;
+                return;
+            }
+            
+            $cb->(map {
+                if (ref($_) eq 'ARRAY') {
+                    {
+                        cluster_uuid => $_->[0],
+                        cluster_mode => $_->[1]
+                    };
+                } else {
+                    $@ = 'Database error'; # TODO better error
+                    $cb->();
+                    undef $dbh;
+                    return;
+                }
+            } @$rows);
+            undef $dbh;
+        });
+    });
+}
+
+=item ClusterNodes
+
+=cut
+
+sub ClusterNodes {
+    my ($self, $cluster_uuid, $cb) = @_;
+    weaken($self);
+    
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+    
+    my $dbh; $dbh = $self->dbh(sub {
+        my (undef, $success) = @_;
+        
+        unless (defined $self and $success) {
+            $@ = 'Database error'; # TODO better error
+            $cb->();
+            undef $dbh;
+            return;
+        }
+        
+        $dbh->exec('SELECT node_uuid FROM cluster_node WHERE cluster_uuid = ?', $cluster_uuid, sub {
+            my (undef, $rows, $rv) = @_;
+            
+            unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
+                $@ = 'Database error'; # TODO better error
+                $cb->();
+                undef $dbh;
+                return;
+            }
+            
+            $cb->(map {
+                if (ref($_) eq 'ARRAY') {
+                    {
+                        node_uuid => $_->[0]
+                    };
+                } else {
+                    $@ = 'Database error'; # TODO better error
+                    $cb->();
+                    undef $dbh;
+                    return;
+                }
+            } @$rows);
+            undef $dbh;
+        });
+    });
+}
+
+=item ClusterZones
+
+=cut
+
+sub ClusterZones {
+    my ($self, $cluster_uuid, $cb) = @_;
+    weaken($self);
+    
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+    
+    my $dbh; $dbh = $self->dbh(sub {
+        my (undef, $success) = @_;
+        
+        unless (defined $self and $success) {
+            $@ = 'Database error'; # TODO better error
+            $cb->();
+            undef $dbh;
+            return;
+        }
+        
+        $dbh->exec('SELECT zone_uuid FROM cluster_zone WHERE cluster_uuid = ?', $cluster_uuid, sub {
+            my (undef, $rows, $rv) = @_;
+            
+            unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
+                $@ = 'Database error'; # TODO better error
+                $cb->();
+                undef $dbh;
+                return;
+            }
+            
+            $cb->(map {
+                if (ref($_) eq 'ARRAY') {
+                    {
+                        zone_uuid => $_->[0]
+                    };
+                } else {
+                    $@ = 'Database error'; # TODO better error
+                    $cb->();
+                    undef $dbh;
+                    return;
+                }
+            } @$rows);
+            undef $dbh;
+        });
+    });
+}
+
+=item ClusterConfig
+
+Returns an array with all cluster configuration suitible for feeding the Cluster
+Manager with during start up.
+
+Object example in the array:
+
+{
+    cluster_uuid => 'string',
+    cluster_mode => 'string',
+    nodes => [
+        {
+            node_uuid => 'string',
+            ...
+        }
+    ],
+    zones => [
+        {
+            zone_uuid => 'string',
+            ...
+        }
+    ]
+}
+
+=cut
+
+sub ClusterConfig {
+    my ($self, $cb) = @_;
+    
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+    
+    my $dbh; $dbh = $self->dbh(sub {
+        my (undef, $success) = @_;
+        
+        unless (defined $self and $success) {
+            $@ = 'Database error'; # TODO better error
+            $cb->();
+            undef $dbh;
+            return;
+        }
+
+        $dbh->exec('SELECT cluster_uuid, cluster_mode FROM clusters', sub {
+            my (undef, $rows, $rv) = @_;
+            
+            unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
+                $@ = 'Database error'; # TODO better error
+                $cb->();
+                undef $dbh;
+                return;
+            }
+
+            my %cluster = map {
+                if (ref($_) eq 'ARRAY') {
+                    $_->[0] => {
+                        cluster_uuid => $_->[0],
+                        cluster_mode => $_->[1],
+                        nodes => [],
+                        zones => []
+                    };
+                } else {
+                    $@ = 'Database error'; # TODO better error
+                    $cb->();
+                    undef $dbh;
+                    return;
+                }
+            } @$rows;
+            
+            $dbh->exec('SELECT cn.cluster_uuid, n.node_uuid, n.node_uri
+                FROM cluster_node cn
+                INNER JOIN node n ON n.node_uuid = cn.node_uuid', sub
+            {
+                my (undef, $rows, $rv) = @_;
+                
+                unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
+                    $@ = 'Database error'; # TODO better error
+                    $cb->();
+                    undef $dbh;
+                    return;
+                }
+                
+                foreach (@$rows) {
+                    unless (ref($_) eq 'ARRAY') {
+                        $@ = 'Database error'; # TODO better error
+                        $cb->();
+                        undef $dbh;
+                        return;
+                    }
+                    
+                    push(@{$cluster{$_->[0]}->{nodes}}, {
+                        node_uuid => $_->[1],
+                        node_uri => $_->[2]
+                    });
+                }
+
+                $dbh->exec('SELECT cn.cluster_uuid, z.zone_uuid, z.zone_filename, z.zone_input_type, z.zone_input_data
+                    FROM cluster_zone cz
+                    INNER JOIN zone z ON z.zone_uuid = cz.zone_uuid', sub
+                {
+                    my (undef, $rows, $rv) = @_;
+                    
+                    unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
+                        $@ = 'Database error'; # TODO better error
+                        $cb->();
+                        undef $dbh;
+                        return;
+                    }
+                    
+                    foreach (@$rows) {
+                        unless (ref($_) eq 'ARRAY') {
+                            $@ = 'Database error'; # TODO better error
+                            $cb->();
+                            undef $dbh;
+                            return;
+                        }
+                        
+                        push(@{$cluster{$_->[0]}->{zones}}, {
+                            zone_uuid => $_->[1],
+                            zone_filename => $_->[2],
+                            zone_input_type => $_->[3],
+                            zone_input_data => $_->[4]
+                        });
+                    }
+                    
+                    $cb->(values %cluster);
+                    undef $dbh;
+                });
+            });
+        });
+    });
 }
 
 =back

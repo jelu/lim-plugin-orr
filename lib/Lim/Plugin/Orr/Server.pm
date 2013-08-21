@@ -8,6 +8,7 @@ use UUID ();
 use Lim::Plugin::Orr ();
 use Lim::Plugin::Orr::Server::DB ();
 use Lim::Plugin::Orr::Server::NodeWatcher ();
+use Lim::Plugin::Orr::Server::ClusterManager ();
 
 use Lim::Util ();
 
@@ -69,6 +70,7 @@ sub _Ready {
     
     $READY = 1;
     $self->{node_watcher}->Timer(0);
+    $self->{cluster_manager}->Timer(0);
     Lim::DEBUG and $self->{logger}->debug('Ready!');
 }
 
@@ -100,6 +102,9 @@ sub Init {
     weaken($self);
 
     $self->{node_watcher} = Lim::Plugin::Orr::Server::NodeWatcher->new;
+    $self->{cluster_manager} = Lim::Plugin::Orr::Server::ClusterManager->new(
+        node_watcher => $self->{node_watcher}
+    );
     
     my $db; $db = Lim::Plugin::Orr::Server::DB->new(
         dsn => $DBI_DSN,
@@ -115,16 +120,20 @@ sub Init {
             if ($success) {
                 $self->{db} = $db;
                 
-                $db->NodeList(sub {
+                $db->ClusterConfig(sub {
                     unless (defined $self) {
                         return;
                     }
                     
+                    # TODO check @_ $@ for error
+                    
                     foreach (@_) {
-                        $self->{node_watcher}->Add(
-                            uuid => $_->{node_uuid},
-                            uri => $_->{node_uri}
-                        );
+                        unless (ref($_) eq 'HASH') {
+                            # TODO error here
+                            next;
+                        }
+                        
+                        $self->{cluster_manager}->Add(%$_);
                     }
 
                     $self->_Ready;
@@ -144,8 +153,6 @@ sub Destroy {
     my ($self) = @_;
     
     $READY = 0;
-    delete $self->{db};
-    delete $self->{node_watcher};
 }
 
 =item $server->ReadNodes
@@ -288,6 +295,231 @@ sub UpdateZone {
 =cut
 
 sub DeleteZone {
+    my ($self, $cb) = @_;
+    
+    unless ($self->_isReady) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->ReadClusters
+
+=cut
+
+sub ReadClusters {
+    my ($self, $cb) = @_;
+    
+    unless ($self->_isReady) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->CreateCluster
+
+=cut
+
+sub CreateCluster {
+    my ($self, $cb) = @_;
+    
+    unless ($self->_isReady) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->ReadCluster
+
+=cut
+
+sub ReadCluster {
+    my ($self, $cb) = @_;
+    
+    unless ($self->_isReady) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->UpdateCluster
+
+=cut
+
+sub UpdateCluster {
+    my ($self, $cb) = @_;
+    
+    unless ($self->_isReady) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->DeleteCluster
+
+=cut
+
+sub DeleteCluster {
+    my ($self, $cb) = @_;
+    
+    unless ($self->_isReady) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->ReadClusterNodes
+
+=cut
+
+sub ReadClusterNodes {
+    my ($self, $cb) = @_;
+    
+    unless ($self->_isReady) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->CreateClusterNode
+
+=cut
+
+sub CreateClusterNode {
+    my ($self, $cb) = @_;
+    
+    unless ($self->_isReady) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->ReadClusterNode
+
+=cut
+
+sub ReadClusterNode {
+    my ($self, $cb) = @_;
+    
+    unless ($self->_isReady) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->UpdateClusterNode
+
+=cut
+
+sub UpdateClusterNode {
+    my ($self, $cb) = @_;
+    
+    unless ($self->_isReady) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->DeleteClusterNode
+
+=cut
+
+sub DeleteClusterNode {
+    my ($self, $cb) = @_;
+    
+    unless ($self->_isReady) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->ReadClusterZones
+
+=cut
+
+sub ReadClusterZones {
+    my ($self, $cb) = @_;
+    
+    unless ($self->_isReady) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->CreateClusterZone
+
+=cut
+
+sub CreateClusterZone {
+    my ($self, $cb) = @_;
+    
+    unless ($self->_isReady) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->ReadClusterZone
+
+=cut
+
+sub ReadClusterZone {
+    my ($self, $cb) = @_;
+    
+    unless ($self->_isReady) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->UpdateClusterZone
+
+=cut
+
+sub UpdateClusterZone {
+    my ($self, $cb) = @_;
+    
+    unless ($self->_isReady) {
+        $self->Error($cb, 'Orr is not ready or shutting down');
+        return;
+    }
+    
+    $self->Error($cb, 'Not implemented');
+}
+
+=item $server->DeleteClusterZone
+
+=cut
+
+sub DeleteClusterZone {
     my ($self, $cb) = @_;
     
     unless ($self->_isReady) {

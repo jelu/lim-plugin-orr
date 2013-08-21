@@ -3,7 +3,7 @@ package Lim::Plugin::Orr::Server::NodeWatcher;
 use common::sense;
 
 use Carp;
-use Scalar::Util qw(weaken blessed);
+use Scalar::Util qw(weaken);
 use AnyEvent ();
 use Log::Log4perl ();
 
@@ -25,11 +25,14 @@ See L<Lim::Plugin::Orr> for version.
 
 our $VERSION = $Lim::Plugin::Orr::VERSION;
 
-our $NODE_WATCHER_TIMER = 5;
+our $TIMER_INTERVAL = 5;
+our $NODE_REPING = 30;
 
 =head1 SYNOPSIS
 
-  use base qw(Lim::Plugin::Orr::Server::NodeWatcher);
+  use Lim::Plugin::Orr::Server::NodeWatcher;
+  
+  my $node_watcher = Lim::Plugin::Orr::Server::NodeWatcher->new(...);
 
 =head1 DESCRIPTION
 
@@ -57,7 +60,7 @@ These methods handles the nodes for OpenDNSSEC Redundancy Robot.
 
 =over 4
 
-=item $db = Lim::Plugin::Orr::Server::NodeWatcher->new(key => value...);
+=item $node_manager = Lim::Plugin::Orr::Server::NodeWatcher->new(...);
 
 Create a new Node Watcher object for the OpenDNSSEC Redundancy Robot.
 
@@ -93,7 +96,7 @@ sub Timer {
     weaken($self);
 
     $self->{timer} = AnyEvent->timer(
-        after => defined $after ? $after : $NODE_WATCHER_TIMER,
+        after => defined $after ? $after : $TIMER_INTERVAL,
         cb => sub {
             defined $self and $self->Run;
         });
@@ -134,15 +137,23 @@ sub Run {
             next;
         }
         
-        if ($node->{state} == STATE_OFFLINE) {
+        if ($node->{state} == STATE_OFFLINE or $node->{node}->LastCall < (time - $NODE_REPING)) {
             Lim::DEBUG and $self->{logger}->debug('Pinging node ', $uuid);
             $node->{lock} = 1;
             $node->{node}->Ping(sub {
                 my ($success) = @_;
                 
                 if ($success) {
-                    Lim::DEBUG and $self->{logger}->debug('Node ', $uuid, ' STATE ONLINE');
-                    $node->{state} = STATE_ONLINE;
+                    if ($node->{state} != STATE_ONLINE) {
+                        Lim::DEBUG and $self->{logger}->debug('Node ', $uuid, ' STATE ONLINE');
+                        $node->{state} = STATE_ONLINE;
+                    }
+                }
+                else {
+                    if ($node->{state} != STATE_OFFLINE) {
+                        Lim::DEBUG and $self->{logger}->debug('Node ', $uuid, ' STATE OFFLINE');
+                        $node->{state} = STATE_OFFLINE;
+                    }
                 }
                 $node->{lock} = 0;
             });
@@ -161,34 +172,34 @@ sub Add {
     my $self = shift;
     my %args = ( @_ );
 
-    unless (defined $args{uuid}) {
-        $@ = 'Missing uuid';
+    unless (defined $args{node_uuid}) {
+        $@ = 'Missing node_uuid';
         return;
     }
-    unless (defined $args{uri}) {
-        $@ = 'Missing uri';
+    unless (defined $args{node_uri}) {
+        $@ = 'Missing node_uri';
         return;
     }
     
-    if (exists $self->{node}->{$args{uuid}}) {
+    if (exists $self->{node}->{$args{node_uuid}}) {
         $@ = 'A node with that UUID already exists';
         return;
     }
     
     my $node;
     eval {
-        $node = Lim::Plugin::Orr::Server::Node->new(uri => $args{uri});
+        $node = Lim::Plugin::Orr::Server::Node->new(uri => $args{node_uri});
     };
     if ($@) {
         $@ = 'Unable to create Node object: '.$@;
         return;
     }
         
-    Lim::DEBUG and $self->{logger}->debug('Adding ', $args{uuid}, ' at ', $args{uri});
+    Lim::DEBUG and $self->{logger}->debug('Adding ', $args{node_uuid}, ' at ', $args{node_uri});
 
-    $self->{node}->{$args{uuid}} = {
-        uuid => $args{uuid},
-        uri => $args{uri},
+    $self->{node}->{$args{node_uuid}} = {
+        uuid => $args{node_uuid},
+        uri => $args{node_uri},
         state => STATE_OFFLINE,
         node => $node,
         remove => 0

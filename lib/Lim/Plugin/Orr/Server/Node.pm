@@ -30,7 +30,9 @@ our $VERSION = $Lim::Plugin::Orr::VERSION;
 
 =head1 SYNOPSIS
 
-  use base qw(Lim::Plugin::Orr::Server::Node);
+  use Lim::Plugin::Orr::Server::Node;
+  
+  my $node = Lim::Plugin::Orr::Server::Node->new(...);
 
 =head1 DESCRIPTION
 
@@ -39,13 +41,14 @@ actuall calls to the nodes.
 
 =head1 METHODS
 
-These methods handles the nodes for OpenDNSSEC Redundancy Robot.
+These methods does the actuall calls to nodes for the OpenDNSSEC Redundancy
+Robot.
 
 =over 4
 
-=item $db = Lim::Plugin::Orr::Server::NodeWatcher->new(key => value...);
+=item $node = Lim::Plugin::Orr::Server::Node->new(...);
 
-Create a new Node Watcher object for the OpenDNSSEC Redundancy Robot.
+Create a new Node object for the OpenDNSSEC Redundancy Robot.
 
 =cut
 
@@ -54,7 +57,8 @@ sub new {
     my $class = ref($this) || $this;
     my %args = ( @_ );
     my $self = {
-        logger => Log::Log4perl->get_logger
+        logger => Log::Log4perl->get_logger,
+        last_call => 0
     };
     bless $self, $class;
 
@@ -95,17 +99,31 @@ sub Ping {
     $agent->ReadVersion(sub {
         my ($call, $response) = @_;
         
+        unless (defined $self) {
+            undef $agent;
+            return;
+        }
+        
         if ($call->Successful) {
+            $self->{last_call} = time;
             $cb->(1);
         }
         else {
             $cb->();
         }
-        undef($agent);
+        undef $agent;
     }, {
         host => $self->{host},
         port => $self->{port}
     });
+}
+
+=item LastCall
+
+=cut
+
+sub LastCall {
+    $_[0]->{last_call};
 }
 
 =back
