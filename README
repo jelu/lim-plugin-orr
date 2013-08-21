@@ -11,6 +11,26 @@ For available RPC calls and CLI commands please see:
 
 	perldoc Lim::Plugin::Orr
 
+ARCHITECTURE
+
+These are the components within Orr and a description on what they do.
+
+  Lim::Plugin::Orr::Server
+    The main RPC component, it starts a NodeWatcher and manage the
+    database containing all configurations.
+
+  Lim::Plugin::Orr::Server::DB
+    The main database layer, it handles the database connection, creation
+    and upgrade.
+
+  Lim::Plugin::Orr::Server::NodeWatcher
+    The main logic component, it starts several event watchers to
+    manage the nodes and synchronize data between them.
+
+  Lim::Plugin::Orr::Server::Node
+    A node communication component, it simplifies communication with all
+    the different plugins on the nodes. Used mainly by the NodeWatcher.
+
 INSTALLATION
 
 To install this module, run the following commands:

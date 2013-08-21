@@ -89,7 +89,8 @@ sub new {
     my $dbh; $dbh = $self->dbh(sub {
         my (undef, $success) = @_;
         
-        unless (defined $self) {
+        unless (defined $self and $success) {
+            $args{on_connect}->();
             undef $dbh;
             return;
         }
@@ -139,7 +140,7 @@ sub dbh {
         mysql_auto_reconnect => 0,
         mysql_enable_utf8 => 1,
         sqlite_unicode => 1,
-        (defined $on_error ? (on_error => $on_error) : ()),
+        on_error => defined $on_error ? $on_error : sub {},
         on_connect => $on_connect
         );
 
@@ -157,7 +158,6 @@ existing database if there is a new version.
 
 sub Setup {
     my ($self, $dbh, $cb) = @_;
-    my $real_self = $self;
     weaken($self);
     
     unless (ref($cb) eq 'CODE') {
@@ -172,49 +172,42 @@ sub Setup {
 
     Lim::DEBUG and $self->{logger}->debug('Setting up database');
     
-    $dbh->exec('SELECT version FROM version',
-        sub {
-            my ($dbh, $rows, $rv) = @_;
-            
-            unless (defined $self) {
-                $cb->();
-                undef $cb;
-                return;
-            }
-            
-            unless ($rv and ref($rows) eq 'ARRAY') {
-                Lim::DEBUG and $self->{logger}->debug('No version found, creating database');
-                $self->Create($dbh, $cb);
-                undef $cb;
-                return;
-            }
-
-            unless (scalar @$rows == 1 and ref($rows->[0]) eq 'ARRAY' and scalar @{$rows->[0]} == 1) {
-                $@ = 'Database schema error, no version information.';
-                $cb->();
-                undef $cb;
-                return;
-            }
-
-            if ($rows->[0]->[0] gt $VERSION) {
-                $@ = 'Database schema error, version is larger then plugin.';
-                $cb->();
-                undef $cb;
-                return;
-            }
-            
-            if ($rows->[0]->[0] lt $VERSION) {
-                Lim::DEBUG and $self->{logger}->debug('Database version ', $rows->[0]->[0], ' is less then ', $VERSION, ', upgrading');
-                $self->Upgrade($dbh, $cb, $rows->[0]->[0]);
-                undef $cb;
-                return;
-            }
-
-            Lim::DEBUG and $self->{logger}->debug('Database is current version ', $VERSION);
-            $cb->(1);
-            undef $cb;
+    $dbh->exec('SELECT version FROM version', sub {
+        my ($dbh, $rows, $rv) = @_;
+        
+        unless (defined $self) {
+            $cb->();
             return;
-        });
+        }
+        
+        unless ($rv and ref($rows) eq 'ARRAY') {
+            Lim::DEBUG and $self->{logger}->debug('No version found, creating database');
+            $self->Create($dbh, $cb);
+            return;
+        }
+
+        unless (scalar @$rows == 1 and ref($rows->[0]) eq 'ARRAY' and scalar @{$rows->[0]} == 1) {
+            $@ = 'Database schema error, no version information.';
+            $cb->();
+            return;
+        }
+
+        if ($rows->[0]->[0] gt $VERSION) {
+            $@ = 'Database schema error, version is larger then plugin.';
+            $cb->();
+            return;
+        }
+        
+        if ($rows->[0]->[0] lt $VERSION) {
+            Lim::DEBUG and $self->{logger}->debug('Database version ', $rows->[0]->[0], ' is less then ', $VERSION, ', upgrading');
+            $self->Upgrade($dbh, $cb, $rows->[0]->[0]);
+            return;
+        }
+
+        Lim::DEBUG and $self->{logger}->debug('Database is current version ', $VERSION);
+        $cb->(1);
+        return;
+    });
 }
 
 =item Create
@@ -223,7 +216,7 @@ sub Setup {
 
 our @__tables = (
     'CREATE TABLE version ( version varchar(16) not null, primary key (version) )',
-    'CREATE TABLE nodes ( node_uuid varchar(36) not null, node_uri varchar(255) not null, node_state varchar(16) not null, primary key (node_uuid) )',
+    'CREATE TABLE nodes ( node_uuid varchar(36) not null, node_uri varchar(255) not null, primary key (node_uuid) )',
     'CREATE TABLE zones ( zone_uuid varchar(36) not null, zone_filename varchar(255) not null, primary key (zone_uuid), unique (zone_filename) )'
 );
 
@@ -235,14 +228,13 @@ sub __uuid {
 }
 
 our @__data = (
-    [ 'INSERT INTO nodes ( node_uuid, node_uri, node_state ) VALUES ( ?, ?, "" )', __uuid, 'http://172.16.21.91:5353' ],
-    [ 'INSERT INTO nodes ( node_uuid, node_uri, node_state ) VALUES ( ?, ?, "" )', __uuid, 'http://172.16.21.92:5353' ],
+    [ 'INSERT INTO nodes ( node_uuid, node_uri ) VALUES ( ?, ? )', __uuid, 'http://172.16.21.91:5353' ],
+    [ 'INSERT INTO nodes ( node_uuid, node_uri ) VALUES ( ?, ? )', __uuid, 'http://172.16.21.92:5353' ],
     [ 'INSERT INTO version ( version ) VALUES ( ? )', $VERSION ]
 );
 
 sub Create {
     my ($self, $dbh, $cb) = @_;
-    my $real_self = $self;
     weaken($self);
 
     unless (ref($cb) eq 'CODE') {
@@ -263,30 +255,26 @@ sub Create {
         
         unless (defined $self) {
             $cb->();
-            undef $cb;
             return;
         }
         
         if (defined (my $table = shift(@tables))) {
-            $dbh->exec($table,
-                sub {
-                    my ($dbh, undef, $rv) = @_;
-                    
-                    unless (defined $self) {
-                        $cb->();
-                        undef $cb;
-                        return;
-                    }
-                    
-                    unless ($rv) {
-                        $@ = 'Database creation failed, unable to create table: '.$@;
-                        $cb->();
-                        undef $cb;
-                        return;
-                    }
-                    
-                    $code->($dbh);
-                });
+            $dbh->exec($table, sub {
+                my ($dbh, undef, $rv) = @_;
+                
+                unless (defined $self) {
+                    $cb->();
+                    return;
+                }
+                
+                unless ($rv) {
+                    $@ = 'Database creation failed, unable to create table: '.$@;
+                    $cb->();
+                    return;
+                }
+                
+                $code->($dbh);
+            });
             return;
         }
         
@@ -296,14 +284,12 @@ sub Create {
                 
                 unless (defined $self) {
                     $cb->();
-                    undef $cb;
                     return;
                 }
                 
                 unless ($rc) {
                     $@ = 'Database creation failed, unable to start transaction: '.$@;
                     $cb->();
-                    undef $cb;
                     return;
                 }
                 
@@ -314,25 +300,22 @@ sub Create {
         }
         
         if (defined (my $data = shift(@data))) {
-            $dbh->exec(@$data,
-                sub {
-                    my ($dbh, undef, $rv) = @_;
-                    
-                    unless (defined $self) {
-                        $cb->();
-                        undef $cb;
-                        return;
-                    }
-                    
-                    unless ($rv) {
-                        $@ = 'Database creation failed, unable to populate table: '.$@;
-                        $cb->();
-                        undef $cb;
-                        return;
-                    }
-                    
-                    $code->($dbh);
-                });
+            $dbh->exec(@$data, sub {
+                my ($dbh, undef, $rv) = @_;
+                
+                unless (defined $self) {
+                    $cb->();
+                    return;
+                }
+                
+                unless ($rv) {
+                    $@ = 'Database creation failed, unable to populate table: '.$@;
+                    $cb->();
+                    return;
+                }
+                
+                $code->($dbh);
+            });
             return;
         }
 
@@ -341,21 +324,19 @@ sub Create {
             
             unless (defined $self) {
                 $cb->();
-                undef $cb;
                 return;
             }
             
             unless ($rc) {
                 $@ = 'Database creation failed, unable to commit transaction: '.$@;
                 $cb->();
-                undef $cb;
                 return;
             }
             
             Lim::DEBUG and $self->{logger}->debug('Database created');
             $cb->(1);
-            undef $cb;
         });
+        undef $code;
         return;
     };
     $code->($dbh);
@@ -367,7 +348,6 @@ sub Create {
 
 sub Upgrade {
     my ($self, $dbh, $cb) = @_;
-    my $real_self = $self;
     weaken($self);
 
     unless (ref($cb) eq 'CODE') {
@@ -379,6 +359,54 @@ sub Upgrade {
         $cb->();
         return;
     }
+}
+
+=item NodeList
+
+=cut
+
+sub NodeList {
+    my ($self, $cb) = @_;
+    weaken($self);
+    
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+    
+    my $dbh; $dbh = $self->dbh(sub {
+        my (undef, $success) = @_;
+        
+        unless (defined $self and $success) {
+            $cb->();
+            undef $dbh;
+            return;
+        }
+        
+        $dbh->exec('SELECT node_uuid, node_uri FROM nodes', sub {
+            my (undef, $rows, $rv) = @_;
+            
+            unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
+                $cb->();
+                undef $dbh;
+                return;
+            }
+            
+            $cb->(map {
+                if (ref($_) eq 'ARRAY') {
+                    {
+                        node_uuid => $_->[0],
+                        node_uri => $_->[1]
+                    };
+                } else {
+                    $cb->();
+                    undef $dbh;
+                    return;
+                }
+            } @$rows);
+            undef $dbh;
+        });
+    });
+    
 }
 
 =back

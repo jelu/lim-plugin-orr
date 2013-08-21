@@ -69,6 +69,7 @@ sub _Ready {
     
     $READY = 1;
     $self->{node_watcher}->Timer(0);
+    Lim::DEBUG and $self->{logger}->debug('Ready!');
 }
 
 =item _isReady
@@ -96,7 +97,6 @@ Please see L<Lim::Plugin::Orr> for full documentation of calls.
 
 sub Init {
     my ($self) = @_;
-    my $real_self = $self;
     weaken($self);
 
     $self->{node_watcher} = Lim::Plugin::Orr::Server::NodeWatcher->new;
@@ -114,7 +114,21 @@ sub Init {
             
             if ($success) {
                 $self->{db} = $db;
-                $self->_Ready;
+                
+                $db->NodeList(sub {
+                    unless (defined $self) {
+                        return;
+                    }
+                    
+                    foreach (@_) {
+                        $self->{node_watcher}->Add(
+                            uuid => $_->{node_uuid},
+                            uri => $_->{node_uri}
+                        );
+                    }
+
+                    $self->_Ready;
+                });
             }
             else {
                 $self->{logger}->error('Init() Unable to connect/setup database: ', $@);

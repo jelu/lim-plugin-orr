@@ -8,6 +8,7 @@ use Log::Log4perl ();
 
 use Lim::Plugin::Orr ();
 
+use Lim::Agent ();
 use Lim::Plugin::DNS ();
 use Lim::Plugin::OpenDNSSEC ();
 use Lim::Plugin::SoftHSM ();
@@ -46,12 +47,6 @@ These methods handles the nodes for OpenDNSSEC Redundancy Robot.
 
 Create a new Node Watcher object for the OpenDNSSEC Redundancy Robot.
 
-=over 4
-
-=item server
-
-=back
-
 =cut
 
 sub new {
@@ -63,6 +58,18 @@ sub new {
     };
     bless $self, $class;
 
+    unless (defined $args{uri}) {
+        confess __PACKAGE__, ': Missing uri';
+    }
+    
+    if ($args{uri} =~ /:\/\/(.*):(\d+)/o) {
+        $self->{host} = $1;
+        $self->{port} = $2;
+    }
+    else {
+        confess __PACKAGE__, ': Invalid uri';
+    }
+
     Lim::OBJ_DEBUG and $self->{logger}->debug('new ', __PACKAGE__, ' ', $self);
     $self;
 }
@@ -70,6 +77,35 @@ sub new {
 sub DESTROY {
     my ($self) = @_;
     Lim::OBJ_DEBUG and $self->{logger}->debug('destroy ', __PACKAGE__, ' ', $self);
+}
+
+=item Ping
+
+=cut
+
+sub Ping {
+    my ($self, $cb) = @_;
+    weaken($self);
+
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+    
+    my $agent = Lim::Agent->Client;
+    $agent->ReadVersion(sub {
+        my ($call, $response) = @_;
+        
+        if ($call->Successful) {
+            $cb->(1);
+        }
+        else {
+            $cb->();
+        }
+        undef($agent);
+    }, {
+        host => $self->{host},
+        port => $self->{port}
+    });
 }
 
 =back
