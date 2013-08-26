@@ -141,6 +141,7 @@ sub dbh {
         mysql_auto_reconnect => 0,
         mysql_enable_utf8 => 1,
         sqlite_unicode => 1,
+        exec_server => 1,
         on_error => defined $on_error ? $on_error : sub {},
         on_connect => $on_connect
     );
@@ -173,6 +174,7 @@ sub Setup {
 
     Lim::DEBUG and $self->{logger}->debug('Setting up database');
     
+    undef $@;
     $dbh->exec('SELECT version FROM version', sub {
         my ($dbh, $rows, $rv) = @_;
         
@@ -292,6 +294,7 @@ sub Create {
         return;
     }
 
+    undef $@;
     my @tables = @__tables;
     my @data = @__data;
     my $transaction = 0;
@@ -406,6 +409,9 @@ sub Upgrade {
         $cb->();
         return;
     }
+    
+    undef $@;
+    $cb->(1);
 }
 
 =item NodeList
@@ -420,6 +426,7 @@ sub NodeList {
         confess '$cb is not CODE';
     }
     
+    undef $@;
     my $dbh; $dbh = $self->dbh(sub {
         my (undef, $success) = @_;
         
@@ -470,6 +477,7 @@ sub ZoneList {
         confess '$cb is not CODE';
     }
     
+    undef $@;
     my $dbh; $dbh = $self->dbh(sub {
         my (undef, $success) = @_;
         
@@ -520,6 +528,7 @@ sub ClusterList {
         confess '$cb is not CODE';
     }
     
+    undef $@;
     my $dbh; $dbh = $self->dbh(sub {
         my (undef, $success) = @_;
         
@@ -570,6 +579,7 @@ sub ClusterNodes {
         confess '$cb is not CODE';
     }
     
+    undef $@;
     my $dbh; $dbh = $self->dbh(sub {
         my (undef, $success) = @_;
         
@@ -619,6 +629,7 @@ sub ClusterZones {
         confess '$cb is not CODE';
     }
     
+    undef $@;
     my $dbh; $dbh = $self->dbh(sub {
         my (undef, $success) = @_;
         
@@ -689,6 +700,7 @@ sub ClusterConfig {
         confess '$cb is not CODE';
     }
     
+    undef $@;
     my $dbh; $dbh = $self->dbh(sub {
         my (undef, $success) = @_;
         
@@ -727,7 +739,7 @@ sub ClusterConfig {
             
             $dbh->exec('SELECT cn.cluster_uuid, n.node_uuid, n.node_uri
                 FROM cluster_node cn
-                INNER JOIN node n ON n.node_uuid = cn.node_uuid', sub
+                INNER JOIN nodes n ON n.node_uuid = cn.node_uuid', sub
             {
                 my (undef, $rows, $rv) = @_;
                 
@@ -752,9 +764,9 @@ sub ClusterConfig {
                     });
                 }
 
-                $dbh->exec('SELECT cn.cluster_uuid, z.zone_uuid, z.zone_filename, z.zone_input_type, z.zone_input_data
+                $dbh->exec('SELECT cz.cluster_uuid, z.zone_uuid, z.zone_filename, z.zone_input_type, z.zone_input_data
                     FROM cluster_zone cz
-                    INNER JOIN zone z ON z.zone_uuid = cz.zone_uuid', sub
+                    INNER JOIN zones z ON z.zone_uuid = cz.zone_uuid', sub
                 {
                     my (undef, $rows, $rv) = @_;
                     
