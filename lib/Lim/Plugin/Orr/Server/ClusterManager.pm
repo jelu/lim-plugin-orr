@@ -8,6 +8,7 @@ use AnyEvent ();
 use Log::Log4perl ();
 
 use Lim::Plugin::Orr ();
+use Lim::Plugin::Orr::Server::NodeWatcher ();
 use Lim::Plugin::Orr::Server::ZoneInput ();
 
 =encoding utf8
@@ -54,16 +55,64 @@ sub new {
     my $class = ref($this) || $this;
     my %args = ( @_ );
     my $self = {
-        logger => Log::Log4perl->get_logger
+        logger => Log::Log4perl->get_logger,
+        zone => {}
     };
     bless $self, $class;
 
-    unless (blessed $args{node_watcher} and $args{node_watcher}->isa('Lim::Plugin::Orr::Server::NodeWatcher')) {
-        confess __PACKAGE__, ': Missing node_watcher or is not a Lim::Plugin::Orr::Server::NodeWatcher';
+    unless (defined $args{cluster_uuid}) {
+        confess __PACKAGE__, ': Missing cluster_uuid';
+    }
+    unless (defined $args{cluster_mode}) {
+        confess __PACKAGE__, ': Missing cluster_mode';
     }
     
-    $self->{node_watcher} = $args{node_watcher};
+    if (exists $args{zones}) {
+        unless (ref($args{zones}) eq 'ARRAY') {
+            confess __PACKAGE__, ': zones is not an array ref';
+        }
+        
+        foreach (@{$args{zones}}) {
+            unless (ref($_) eq 'HASH') {
+                confess __PACKAGE__, ': zone item is not an hash ref';
+            }
+            
+            foreach my $k (qw(zone_uuid zone_filename zone_input_type zone_input_data)) {
+                unless (exists $_->{$k}) {
+                    confess __PACKAGE__, ': Missing ', $k, ' in zone item';
+                }
+            }
+            
+            if (exists $self->{zone}->{$_->{zone_uuid}}) {
+                confess __PACKAGE__, ': zone item already exists';
+            }
+            
+            $self->{zone}->{$_->{zone_uuid}} = $_;
+        }
+    }
+
+    $self->{uuid} = $args{cluster_uuid};
+    $self->{mode} = $args{cluster_mode};
+    $self->{node_watcher} = Lim::Plugin::Orr::Server::NodeWatcher->new;
     
+    if (exists $args{nodes}) {
+        unless (ref($args{nodes}) eq 'ARRAY') {
+            confess __PACKAGE__, ': nodes is not an array ref';
+        }
+        
+        foreach (@{$args{nodes}}) {
+            unless (ref($_) eq 'HASH') {
+                confess __PACKAGE__, ': node item is not an hash ref';
+            }
+            
+            unless ($self->{node_watcher}->Add(%$_)) {
+                confess __PACKAGE__, ': unable to add node to NodeWatcher: ', $@;
+            }
+        }
+    }
+
+    $self->{node_watcher}->Timer(0);
+
     Lim::OBJ_DEBUG and $self->{logger}->debug('new ', __PACKAGE__, ' ', $self);
     $self;
 }
@@ -73,6 +122,38 @@ sub DESTROY {
     Lim::OBJ_DEBUG and $self->{logger}->debug('destroy ', __PACKAGE__, ' ', $self);
     
     $self->Stop;
+}
+
+=item uuid
+
+=cut
+
+sub uuid {
+    $_[0]->{uuid};
+}
+
+=item mode
+
+=cut
+
+sub mode {
+    $_[0]->{mode};
+}
+
+=item zones
+
+=cut
+
+sub zones {
+    values %{$_[0]->{zone}};
+}
+
+=item NodeWatcher
+
+=cut
+
+sub NodeWatcher {
+    $_[0]->{node_watcher};
 }
 
 =item Timer
@@ -114,30 +195,6 @@ sub Run {
     $self->{logger}->debug('Run() done');
 
     $self->Timer;
-}
-
-=item Add
-
-=cut
-
-sub Add {
-    my $self = shift;
-    my %args = ( @_ );
-
-    unless (defined $args{cluster_uuid}) {
-        $@ = 'Missing cluster_uuid';
-        return;
-    }
-
-    return 1;
-}
-
-=item Remove
-
-=cut
-
-sub Remove {
-    my ($self) = @_;
 }
 
 =back

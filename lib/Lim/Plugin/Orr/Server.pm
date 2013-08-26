@@ -7,7 +7,6 @@ use UUID ();
 
 use Lim::Plugin::Orr ();
 use Lim::Plugin::Orr::Server::DB ();
-use Lim::Plugin::Orr::Server::NodeWatcher ();
 use Lim::Plugin::Orr::Server::ClusterManager ();
 
 use Lim::Util ();
@@ -69,8 +68,6 @@ sub _Ready {
     my ($self) = @_;
     
     $READY = 1;
-    $self->{node_watcher}->Timer(0);
-    $self->{cluster_manager}->Timer(0);
     Lim::DEBUG and $self->{logger}->debug('Ready!');
 }
 
@@ -79,7 +76,7 @@ sub _Ready {
 =cut
 
 sub _isReady {
-    return $READY ? 1 : 0;
+    $READY ? 1 : 0;
 }
 
 =back
@@ -101,10 +98,7 @@ sub Init {
     my ($self) = @_;
     weaken($self);
 
-    $self->{node_watcher} = Lim::Plugin::Orr::Server::NodeWatcher->new;
-    $self->{cluster_manager} = Lim::Plugin::Orr::Server::ClusterManager->new(
-        node_watcher => $self->{node_watcher}
-    );
+    $self->{cluster} = {};
     
     my $db; $db = Lim::Plugin::Orr::Server::DB->new(
         dsn => $DBI_DSN,
@@ -119,13 +113,16 @@ sub Init {
             
             if ($success) {
                 $self->{db} = $db;
-                
+
                 $db->ClusterConfig(sub {
                     unless (defined $self) {
                         return;
                     }
                     
-                    # TODO check @_ $@ for error
+                    if ($@) {
+                        $self->{logger}->error('Init() Unable to get cluster configuration: ', $@);
+                        return;
+                    }
                     
                     foreach (@_) {
                         unless (ref($_) eq 'HASH') {
@@ -133,7 +130,26 @@ sub Init {
                             next;
                         }
                         
-                        $self->{cluster_manager}->Add(%$_);
+                        if (exists $self->{cluster}->{$_->{cluster_uuid}}) {
+                            # TODO error here
+                            next;
+                        }
+                        
+                        Lim::DEBUG and $self->{logger}->debug('Init() cluster ', $_->{cluster_uuid});
+                        
+                        eval {
+                            $self->{cluster}->{$_->{cluster_uuid}} = {
+                                cluster_manager => Lim::Plugin::Orr::Server::ClusterManager->new(%$_),
+                                configured => 1
+                            };
+                        };
+                        if ($@) {
+                            $self->{logger}->error('Init() cluster ', $_->{cluster_uuid},' error: ', $@);
+                            $self->{cluster}->{$_->{cluster_uuid}} = {
+                                configured => 0,
+                                config_error => $@
+                            };
+                        }
                     }
 
                     $self->_Ready;
