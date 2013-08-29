@@ -5,9 +5,10 @@ use common::sense;
 use Carp;
 use Scalar::Util qw(weaken blessed);
 use UUID ();
-use AnyEvent::DBI ();
 use Log::Log4perl ();
 use JSON::XS ();
+
+use Lim::Util::DBI ();
 
 use Lim::Plugin::Orr ();
 
@@ -132,7 +133,7 @@ sub dbh {
         confess __PACKAGE__, ': on_error is not CODE';
     }
     
-    my $dbh; $dbh = AnyEvent::DBI->new(
+    my $dbh; $dbh = Lim::Util::DBI->new(
         $self->{dsn},
         $self->{user},
         $self->{password},
@@ -141,7 +142,6 @@ sub dbh {
         mysql_auto_reconnect => 0,
         mysql_enable_utf8 => 1,
         sqlite_unicode => 1,
-        exec_server => 1,
         on_error => defined $on_error ? $on_error : sub {},
         on_connect => $on_connect
     );
@@ -166,8 +166,8 @@ sub Setup {
         confess '$cb is not CODE';
     }
     
-    unless (blessed $dbh and $dbh->isa('AnyEvent::DBI')) {
-        $@ = '$dbh is not AnyEvent::DBI';
+    unless (blessed $dbh and $dbh->isa('Lim::Util::DBI')) {
+        $@ = '$dbh is not Lim::Util::DBI';
         $cb->();
         return;
     }
@@ -175,7 +175,7 @@ sub Setup {
     Lim::DEBUG and $self->{logger}->debug('Setting up database');
     
     undef $@;
-    $dbh->exec('SELECT version FROM version', sub {
+    $dbh->execute('SELECT version FROM version', sub {
         my ($dbh, $rows, $rv) = @_;
         
         unless (defined $self) {
@@ -288,8 +288,8 @@ sub Create {
         confess '$cb is not CODE';
     }
     
-    unless (blessed $dbh and $dbh->isa('AnyEvent::DBI')) {
-        $@ = '$dbh is not AnyEvent::DBI';
+    unless (blessed $dbh and $dbh->isa('Lim::Util::DBI')) {
+        $@ = '$dbh is not Lim::Util::DBI';
         $cb->();
         return;
     }
@@ -307,7 +307,7 @@ sub Create {
         }
         
         if (defined (my $table = shift(@tables))) {
-            $dbh->exec($table, sub {
+            $dbh->execute($table, sub {
                 my ($dbh, undef, $rv) = @_;
                 
                 unless (defined $self) {
@@ -349,7 +349,7 @@ sub Create {
         }
         
         if (defined (my $data = shift(@data))) {
-            $dbh->exec(@$data, sub {
+            $dbh->execute(@$data, sub {
                 my ($dbh, undef, $rv) = @_;
                 
                 unless (defined $self) {
@@ -404,8 +404,8 @@ sub Upgrade {
         confess '$cb is not CODE';
     }
     
-    unless (blessed $dbh and $dbh->isa('AnyEvent::DBI')) {
-        $@ = '$dbh is not AnyEvent::DBI';
+    unless (blessed $dbh and $dbh->isa('Lim::Util::DBI')) {
+        $@ = '$dbh is not Lim::Util::DBI';
         $cb->();
         return;
     }
@@ -437,7 +437,7 @@ sub NodeList {
             return;
         }
         
-        $dbh->exec('SELECT node_uuid, node_uri FROM nodes', sub {
+        $dbh->execute('SELECT node_uuid, node_uri FROM nodes', sub {
             my (undef, $rows, $rv) = @_;
             
             unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
@@ -488,7 +488,7 @@ sub ZoneList {
             return;
         }
         
-        $dbh->exec('SELECT zone_uuid, zone_filename FROM zones', sub {
+        $dbh->execute('SELECT zone_uuid, zone_filename FROM zones', sub {
             my (undef, $rows, $rv) = @_;
             
             unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
@@ -539,7 +539,7 @@ sub ClusterList {
             return;
         }
         
-        $dbh->exec('SELECT cluster_uuid, cluster_mode FROM clusters', sub {
+        $dbh->execute('SELECT cluster_uuid, cluster_mode FROM clusters', sub {
             my (undef, $rows, $rv) = @_;
             
             unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
@@ -590,7 +590,7 @@ sub ClusterNodes {
             return;
         }
         
-        $dbh->exec('SELECT node_uuid FROM cluster_node WHERE cluster_uuid = ?', $cluster_uuid, sub {
+        $dbh->execute('SELECT node_uuid FROM cluster_node WHERE cluster_uuid = ?', $cluster_uuid, sub {
             my (undef, $rows, $rv) = @_;
             
             unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
@@ -640,7 +640,7 @@ sub ClusterZones {
             return;
         }
         
-        $dbh->exec('SELECT zone_uuid FROM cluster_zone WHERE cluster_uuid = ?', $cluster_uuid, sub {
+        $dbh->execute('SELECT zone_uuid FROM cluster_zone WHERE cluster_uuid = ?', $cluster_uuid, sub {
             my (undef, $rows, $rv) = @_;
             
             unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
@@ -711,7 +711,7 @@ sub ClusterConfig {
             return;
         }
 
-        $dbh->exec('SELECT cluster_uuid, cluster_mode FROM clusters', sub {
+        $dbh->execute('SELECT cluster_uuid, cluster_mode FROM clusters', sub {
             my (undef, $rows, $rv) = @_;
             
             unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
@@ -737,7 +737,7 @@ sub ClusterConfig {
                 }
             } @$rows;
             
-            $dbh->exec('SELECT cn.cluster_uuid, n.node_uuid, n.node_uri
+            $dbh->execute('SELECT cn.cluster_uuid, n.node_uuid, n.node_uri
                 FROM cluster_node cn
                 INNER JOIN nodes n ON n.node_uuid = cn.node_uuid', sub
             {
@@ -764,7 +764,7 @@ sub ClusterConfig {
                     });
                 }
 
-                $dbh->exec('SELECT cz.cluster_uuid, z.zone_uuid, z.zone_filename, z.zone_input_type, z.zone_input_data
+                $dbh->execute('SELECT cz.cluster_uuid, z.zone_uuid, z.zone_filename, z.zone_input_type, z.zone_input_data
                     FROM cluster_zone cz
                     INNER JOIN zones z ON z.zone_uuid = cz.zone_uuid', sub
                 {
