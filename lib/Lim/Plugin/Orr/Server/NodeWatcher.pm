@@ -123,35 +123,43 @@ sub Run {
     weaken($self);
     
     $self->{logger}->debug('Run() start');
-    foreach my $uuid (keys %{$self->{node}}) {
-        my $node = $self->{node}->{$uuid};
-        
+    foreach my $node (values %{$self->{node}}) {
+        #
+        # Skip locked nodes
+        #
         if ($node->{lock}) {
-            Lim::DEBUG and $self->{logger}->debug('Node ', $uuid, ' locked');
+            Lim::DEBUG and $self->{logger}->debug('Node ', $node->{uuid}, ' locked');
             next;
         }
         
+        #
+        # Remove node if its scheduled to be removed
+        #
         if ($node->{remove}) {
-            Lim::DEBUG and $self->{logger}->debug('Removed node ', $uuid);
-            delete $self->{node}->{$uuid};
+            Lim::DEBUG and $self->{logger}->debug('Removed node ', $node->{uuid});
+            delete $self->{node}->{$node->{uuid}};
             next;
         }
         
+        #
+        # Ping the node if its offline or if its time to ping it again to check
+        # that it is alive
+        #
         if ($node->{state} == STATE_OFFLINE or $node->{node}->LastCall < (time - $NODE_REPING)) {
-            Lim::DEBUG and $self->{logger}->debug('Pinging node ', $uuid);
+            Lim::DEBUG and $self->{logger}->debug('Pinging node ', $node->{uuid});
             $node->{lock} = 1;
             $node->{node}->Ping(sub {
                 my ($success) = @_;
                 
                 if ($success) {
                     if ($node->{state} != STATE_ONLINE) {
-                        Lim::DEBUG and $self->{logger}->debug('Node ', $uuid, ' STATE ONLINE');
+                        Lim::DEBUG and $self->{logger}->debug('Node ', $node->{uuid}, ' STATE ONLINE');
                         $node->{state} = STATE_ONLINE;
                     }
                 }
                 else {
                     if ($node->{state} != STATE_OFFLINE) {
-                        Lim::DEBUG and $self->{logger}->debug('Node ', $uuid, ' STATE OFFLINE');
+                        Lim::DEBUG and $self->{logger}->debug('Node ', $node->{uuid}, ' STATE OFFLINE');
                         $node->{state} = STATE_OFFLINE;
                     }
                 }
@@ -172,34 +180,34 @@ sub Add {
     my $self = shift;
     my %args = ( @_ );
 
-    unless (defined $args{node_uuid}) {
-        $@ = 'Missing node_uuid';
+    unless (defined $args{uuid}) {
+        $@ = 'Missing uuid';
         return;
     }
-    unless (defined $args{node_uri}) {
-        $@ = 'Missing node_uri';
+    unless (defined $args{uri}) {
+        $@ = 'Missing uri';
         return;
     }
     
-    if (exists $self->{node}->{$args{node_uuid}}) {
+    if (exists $self->{node}->{$args{uuid}}) {
         $@ = 'A node with that UUID already exists';
         return;
     }
     
     my $node;
     eval {
-        $node = Lim::Plugin::Orr::Server::Node->new(uri => $args{node_uri});
+        $node = Lim::Plugin::Orr::Server::Node->new(uri => $args{uri});
     };
     if ($@) {
         $@ = 'Unable to create Node object: '.$@;
         return;
     }
         
-    Lim::DEBUG and $self->{logger}->debug('Adding ', $args{node_uuid}, ' at ', $args{node_uri});
+    Lim::DEBUG and $self->{logger}->debug('Adding ', $args{uuid}, ' at ', $args{uri});
 
-    $self->{node}->{$args{node_uuid}} = {
-        uuid => $args{node_uuid},
-        uri => $args{node_uri},
+    $self->{node}->{$args{uuid}} = {
+        uuid => $args{uuid},
+        uri => $args{uri},
         state => STATE_OFFLINE,
         node => $node,
         remove => 0

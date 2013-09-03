@@ -130,22 +130,22 @@ sub Init {
                             next;
                         }
                         
-                        if (exists $self->{cluster}->{$_->{cluster_uuid}}) {
+                        if (exists $self->{cluster}->{$_->{uuid}}) {
                             # TODO error here
                             next;
                         }
                         
-                        Lim::DEBUG and $self->{logger}->debug('Init() cluster ', $_->{cluster_uuid});
+                        Lim::DEBUG and $self->{logger}->debug('Init() cluster ', $_->{uuid});
                         
                         eval {
-                            $self->{cluster}->{$_->{cluster_uuid}} = {
+                            $self->{cluster}->{$_->{uuid}} = {
                                 cluster_manager => Lim::Plugin::Orr::Server::ClusterManager->new(%$_),
                                 configured => 1
                             };
                         };
                         if ($@) {
-                            $self->{logger}->error('Init() cluster ', $_->{cluster_uuid},' error: ', $@);
-                            $self->{cluster}->{$_->{cluster_uuid}} = {
+                            $self->{logger}->error('Init() cluster ', $_->{uuid},' error: ', $@);
+                            $self->{cluster}->{$_->{uuid}} = {
                                 configured => 0,
                                 config_error => $@
                             };

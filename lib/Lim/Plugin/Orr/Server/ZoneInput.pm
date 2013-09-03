@@ -5,6 +5,7 @@ use common::sense;
 use Carp;
 use Scalar::Util qw(weaken);
 use Log::Log4perl ();
+use JSON::XS ();
 
 use Lim::Plugin::Orr ();
 
@@ -24,6 +25,10 @@ See L<Lim::Plugin::Orr> for version.
 =cut
 
 our $VERSION = $Lim::Plugin::Orr::VERSION;
+our $JSON = JSON::XS->new->ascii->convert_blessed;
+our %TYPE = (
+    'Lim::Plugin::DNS' => 'LimPluginDNS'
+);
 
 =head1 SYNOPSIS
 
@@ -55,6 +60,28 @@ sub new {
     };
     bless $self, $class;
 
+    unless (defined $args{type} and exists $TYPE{$args{type}}) {
+        confess __PACKAGE__, ': Missing type or unsupported type';
+    }
+    unless (defined $args{data}) {
+        confess __PACKAGE__, ': Missing data';
+    }
+    unless (defined $args{zone}) {
+        confess __PACKAGE__, ': Missing zone';
+    }
+    
+    $self->{type} = $args{type};
+    eval {
+        $self->{data} = $JSON->decode($args{data});
+    };
+    if ($@) {
+        confess __PACKAGE__, ': Unable to decode data: ', $@;
+    }
+    unless ($self->ValidateData) {
+        confess __PACKAGE__, ': Unable to validate data: ', $@;
+    }
+    $self->{zone} = $args{zone};
+
     Lim::OBJ_DEBUG and $self->{logger}->debug('new ', __PACKAGE__, ' ', $self);
     $self;
 }
@@ -62,6 +89,107 @@ sub new {
 sub DESTROY {
     my ($self) = @_;
     Lim::OBJ_DEBUG and $self->{logger}->debug('destroy ', __PACKAGE__, ' ', $self);
+}
+
+=item ValidateData
+
+=cut
+
+sub ValidateData {
+    my ($self) = shift;
+    my $validate_data = 'ValidateData_' . $TYPE{$self->{type}};
+    
+    undef $@;
+    
+    $self->$validate_data(@_);
+}
+
+=item Fetch
+
+=cut
+
+sub Fetch {
+    my ($self) = shift;
+    my $fetch = 'Fetch_' . $TYPE{$self->{type}};
+    
+    undef $@;
+    
+    $self->$fetch(@_);
+}
+
+=back
+
+=head1 Lim::Plugin::DNS METHODS
+
+=over 4
+
+=item ValidateData_LimPluginDNS
+
+=cut
+
+sub ValidateData_LimPluginDNS {
+    my ($self) = @_;
+    
+    unless (ref($self->{data}) eq 'HASH') {
+        $@ = 'Data is not a hash';
+        return;
+    }
+    
+    unless (defined $self->{data}->{host}) {
+        $@ = 'Missing host in data';
+        return;
+    }
+    unless (defined $self->{data}->{port}) {
+        $@ = 'Missing port in data';
+        return;
+    }
+    
+    return 1;
+}
+
+=item Fetch_LimPluginDNS
+
+=cut
+
+sub Fetch_LimPluginDNS {
+    my ($self, $cb) = @_;
+    weaken($self);
+    
+    unless (ref($cb) eq 'CODE') {
+        confess __PACKAGE__, ': cb is not CODE';
+    }
+    
+    my $dns = Lim::Plugin::DNS->Client;
+    $dns->ReadZone({
+        zone => {
+            file => $self->{zone},
+            (exists $self->{data}->{software} ? (software => $self->{data}->{software}) : ()),
+            as_content => 1
+        }
+    }, sub {
+        my ($call, $response) = @_;
+        
+        unless (defined $self) {
+            undef $dns;
+            return;
+        }
+        
+        if ($call->Successful
+            and ref($response) eq 'HASH'
+            and exists $response->{zone}
+            and ref($response->{zone}) eq 'HASH'
+            and exists $response->{zone}->{content})
+        {
+            $cb->($response->{zone}->{content});
+        }
+        else {
+            $cb->();
+        }
+        undef $dns;
+    }, {
+        host => $self->{data}->{host},
+        port => $self->{data}->{port}
+    });
 }
 
 =back

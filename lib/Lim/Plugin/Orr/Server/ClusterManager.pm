@@ -25,7 +25,6 @@ See L<Lim::Plugin::Orr> for version.
 =cut
 
 our $VERSION = $Lim::Plugin::Orr::VERSION;
-
 our $TIMER_INTERVAL = 5;
 
 =head1 SYNOPSIS
@@ -60,11 +59,11 @@ sub new {
     };
     bless $self, $class;
 
-    unless (defined $args{cluster_uuid}) {
-        confess __PACKAGE__, ': Missing cluster_uuid';
+    unless (defined $args{uuid}) {
+        confess __PACKAGE__, ': Missing uuid';
     }
-    unless (defined $args{cluster_mode}) {
-        confess __PACKAGE__, ': Missing cluster_mode';
+    unless (defined $args{mode}) {
+        confess __PACKAGE__, ': Missing mode';
     }
     
     if (exists $args{zones}) {
@@ -77,22 +76,27 @@ sub new {
                 confess __PACKAGE__, ': zone item is not an hash ref';
             }
             
-            foreach my $k (qw(zone_uuid zone_filename zone_input_type zone_input_data)) {
+            foreach my $k (qw(uuid name input_type input_data)) {
                 unless (exists $_->{$k}) {
                     confess __PACKAGE__, ': Missing ', $k, ' in zone item';
                 }
             }
             
-            if (exists $self->{zone}->{$_->{zone_uuid}}) {
+            if (exists $self->{zone}->{$_->{uuid}}) {
                 confess __PACKAGE__, ': zone item already exists';
             }
             
-            $self->{zone}->{$_->{zone_uuid}} = $_;
+            $self->{zone}->{$_->{uuid}} = $_;
+            $self->{zone}->{$_->{uuid}}->{input} = Lim::Plugin::Orr::Server::ZoneInput->new(
+                zone => $_->{name},
+                type => $_->{input_type},
+                data => $_->{input_data}
+            );
         }
     }
 
-    $self->{uuid} = $args{cluster_uuid};
-    $self->{mode} = $args{cluster_mode};
+    $self->{uuid} = $args{uuid};
+    $self->{mode} = $args{mode};
     $self->{node_watcher} = Lim::Plugin::Orr::Server::NodeWatcher->new;
     
     if (exists $args{nodes}) {
@@ -112,6 +116,7 @@ sub new {
     }
 
     $self->{node_watcher}->Timer(0);
+    $self->Timer(0);
 
     Lim::OBJ_DEBUG and $self->{logger}->debug('new ', __PACKAGE__, ' ', $self);
     $self;
@@ -192,6 +197,39 @@ sub Run {
     weaken($self);
     
     $self->{logger}->debug('Run() start');
+    
+    #
+    # Process zones
+    #
+    foreach my $zone (values %{$self->{zone}}) {
+        #
+        # Skip locked zones
+        #
+        if ($zone->{lock}) {
+            Lim::DEBUG and $self->{logger}->debug('Zone ', $zone->{uuid}, ' locked');
+            next;
+        }
+        
+        #
+        # Fetch zone content if there is none
+        #
+        unless (exists $zone->{content}) {
+            Lim::DEBUG and $self->{logger}->debug('Fetching zone content for zone ', $zone->{uuid});
+            $zone->{lock} = 1;
+            $zone->{input}->Fetch(sub {
+                my ($content) = @_;
+                
+                if (defined $content) {
+                    Lim::DEBUG and $self->{logger}->debug('Zone content for zone ', $zone->{uuid});
+                    Lim::DEBUG and $self->{logger}->debug($content);
+                    $zone->{content} = $content;
+                }
+                
+                $zone->{lock} = 0;
+            });
+        }
+    }
+    
     $self->{logger}->debug('Run() done');
 
     $self->Timer;

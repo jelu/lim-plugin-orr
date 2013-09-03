@@ -233,12 +233,12 @@ our @__tables = (
 'CREATE TABLE zones (
   zone_uuid varchar(36) not null,
   
-  zone_filename varchar(255) not null,
+  zone_name varchar(255) not null,
   zone_input_type varchar(64) not null,
   zone_input_data text not null,
   
   primary key (zone_uuid),
-  unique (zone_filename)
+  unique (zone_name)
 )',
 'CREATE TABLE clusters (
   cluster_uuid varchar(36) not null,
@@ -273,7 +273,7 @@ sub __uuid {
 our @__data = (
     [ 'INSERT INTO nodes ( node_uuid, node_uri ) VALUES ( ?, ? )', __uuid, 'http://172.16.21.91:5353' ],
     [ 'INSERT INTO nodes ( node_uuid, node_uri ) VALUES ( ?, ? )', __uuid, 'http://172.16.21.92:5353' ],
-    [ 'INSERT INTO zones ( zone_uuid, zone_filename, zone_input_type, zone_input_data ) VALUES ( ?, ?, "Lim::Plugin::DNS", ? )', __uuid, 'example.com', JSON::XS->new->ascii->encode({host => '172.16.21.90', port => 5353, software => 'BIND'}) ],
+    [ 'INSERT INTO zones ( zone_uuid, zone_name, zone_input_type, zone_input_data ) VALUES ( ?, ?, "Lim::Plugin::DNS", ? )', __uuid, 'example.com', JSON::XS->new->ascii->encode({host => '172.16.21.90', port => 5353, software => 'BIND'}) ],
     [ 'INSERT INTO clusters ( cluster_uuid, cluster_mode ) VALUES ( ?, ? )', __uuid, 'BACKUP' ],
     [ 'INSERT INTO cluster_node SELECT cluster_uuid, node_uuid FROM clusters, nodes' ],
     [ 'INSERT INTO cluster_zone SELECT cluster_uuid, zone_uuid FROM clusters, zones' ],
@@ -450,8 +450,8 @@ sub NodeList {
             $cb->(map {
                 if (ref($_) eq 'ARRAY') {
                     {
-                        node_uuid => $_->[0],
-                        node_uri => $_->[1]
+                        uuid => $_->[0],
+                        uri => $_->[1]
                     };
                 } else {
                     $@ = 'Database error'; # TODO better error
@@ -488,7 +488,7 @@ sub ZoneList {
             return;
         }
         
-        $dbh->execute('SELECT zone_uuid, zone_filename FROM zones', sub {
+        $dbh->execute('SELECT zone_uuid, zone_name FROM zones', sub {
             my (undef, $rows, $rv) = @_;
             
             unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
@@ -501,8 +501,8 @@ sub ZoneList {
             $cb->(map {
                 if (ref($_) eq 'ARRAY') {
                     {
-                        zone_uuid => $_->[0],
-                        zone_filename => $_->[1]
+                        uuid => $_->[0],
+                        name => $_->[1]
                     };
                 } else {
                     $@ = 'Database error'; # TODO better error
@@ -552,8 +552,8 @@ sub ClusterList {
             $cb->(map {
                 if (ref($_) eq 'ARRAY') {
                     {
-                        cluster_uuid => $_->[0],
-                        cluster_mode => $_->[1]
+                        uuid => $_->[0],
+                        mode => $_->[1]
                     };
                 } else {
                     $@ = 'Database error'; # TODO better error
@@ -724,8 +724,8 @@ sub ClusterConfig {
             my %cluster = map {
                 if (ref($_) eq 'ARRAY') {
                     $_->[0] => {
-                        cluster_uuid => $_->[0],
-                        cluster_mode => $_->[1],
+                        uuid => $_->[0],
+                        mode => $_->[1],
                         nodes => [],
                         zones => []
                     };
@@ -759,12 +759,12 @@ sub ClusterConfig {
                     }
                     
                     push(@{$cluster{$_->[0]}->{nodes}}, {
-                        node_uuid => $_->[1],
-                        node_uri => $_->[2]
+                        uuid => $_->[1],
+                        uri => $_->[2]
                     });
                 }
 
-                $dbh->execute('SELECT cz.cluster_uuid, z.zone_uuid, z.zone_filename, z.zone_input_type, z.zone_input_data
+                $dbh->execute('SELECT cz.cluster_uuid, z.zone_uuid, z.zone_name, z.zone_input_type, z.zone_input_data
                     FROM cluster_zone cz
                     INNER JOIN zones z ON z.zone_uuid = cz.zone_uuid', sub
                 {
@@ -786,10 +786,10 @@ sub ClusterConfig {
                         }
                         
                         push(@{$cluster{$_->[0]}->{zones}}, {
-                            zone_uuid => $_->[1],
-                            zone_filename => $_->[2],
-                            zone_input_type => $_->[3],
-                            zone_input_data => $_->[4]
+                            uuid => $_->[1],
+                            name => $_->[2],
+                            input_type => $_->[3],
+                            input_data => $_->[4]
                         });
                     }
                     
