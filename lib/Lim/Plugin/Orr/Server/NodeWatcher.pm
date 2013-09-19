@@ -151,6 +151,10 @@ sub Run {
             $node->{node}->Ping(sub {
                 my ($success) = @_;
                 
+                unless (defined $self) {
+                    return;
+                }
+                
                 if ($success) {
                     if ($node->{state} != STATE_ONLINE) {
                         Lim::DEBUG and $self->{logger}->debug('Node ', $node->{uuid}, ' STATE ONLINE');
@@ -165,6 +169,7 @@ sub Run {
                 }
                 $node->{lock} = 0;
             });
+            next;
         }
     }
     $self->{logger}->debug('Run() done');
@@ -228,6 +233,27 @@ sub Remove {
         
         $self->{node}->{$uuid}->{remove} = 1;
     }
+}
+
+=item ZoneAdd
+
+=cut
+
+sub ZoneAdd {
+    my $self = shift;
+    my %args = ( @_ );
+    
+    unless (defined $args{name}) {
+        confess __PACKAGE__, ': Missing name';
+    }
+    unless (defined $args{content}) {
+        confess __PACKAGE__, ': Missing content';
+    }
+    unless (exists $args{cb} and ref($args{cb}) eq 'CODE') {
+        confess __PACKAGE__, ': Missing cb or is not CODE';
+    }
+
+    # TODO
 }
 
 =back

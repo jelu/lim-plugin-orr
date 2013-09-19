@@ -219,15 +219,34 @@ sub Run {
             $zone->{input}->Fetch(sub {
                 my ($content) = @_;
                 
+                unless (defined $self) {
+                    return;
+                }
+                
                 if (defined $content) {
-                    Lim::DEBUG and $self->{logger}->debug('Zone content for zone ', $zone->{uuid});
-                    Lim::DEBUG and $self->{logger}->debug($content);
+                    Lim::DEBUG and $self->{logger}->debug('Zone content for zone ', $zone->{uuid}, ' fetched');
                     $zone->{content} = $content;
+                    $zone->{content_timestamp} = AnyEvent->now;
                 }
                 
                 $zone->{lock} = 0;
             });
+            next;
         }
+        
+        #
+        # Check zone for updates
+        #
+        
+        #
+        # Add or update zone in NodeWatcher
+        #
+        
+        #
+        # 
+        #
+        
+        # TODO logic
     }
     
     $self->{logger}->debug('Run() done');
