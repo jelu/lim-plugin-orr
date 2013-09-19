@@ -227,6 +227,7 @@ our @__tables = (
   node_uuid varchar(36) not null,
   
   node_uri varchar(255) not null,
+  node_mode varchar(16) not null,
 
   primary key (node_uuid)
 )',
@@ -271,8 +272,8 @@ sub __uuid {
 }
 
 our @__data = (
-    [ 'INSERT INTO nodes ( node_uuid, node_uri ) VALUES ( ?, ? )', __uuid, 'http://172.16.21.91:5353' ],
-    [ 'INSERT INTO nodes ( node_uuid, node_uri ) VALUES ( ?, ? )', __uuid, 'http://172.16.21.92:5353' ],
+    [ 'INSERT INTO nodes ( node_uuid, node_uri, node_mode ) VALUES ( ?, ?, ? )', __uuid, 'http://172.16.21.91:5353', 'PRIMARY' ],
+    [ 'INSERT INTO nodes ( node_uuid, node_uri, node_mode ) VALUES ( ?, ?, ? )', __uuid, 'http://172.16.21.92:5353', 'SECONDARY' ],
     [ 'INSERT INTO zones ( zone_uuid, zone_name, zone_input_type, zone_input_data ) VALUES ( ?, ?, "Lim::Plugin::DNS", ? )', __uuid, 'example.com', JSON::XS->new->ascii->encode({host => '172.16.21.90', port => 5353, software => 'BIND'}) ],
     [ 'INSERT INTO clusters ( cluster_uuid, cluster_mode ) VALUES ( ?, ? )', __uuid, 'BACKUP' ],
     [ 'INSERT INTO cluster_node SELECT cluster_uuid, node_uuid FROM clusters, nodes' ],
@@ -437,7 +438,7 @@ sub NodeList {
             return;
         }
         
-        $dbh->execute('SELECT node_uuid, node_uri FROM nodes', sub {
+        $dbh->execute('SELECT node_uuid, node_uri, node_mode FROM nodes', sub {
             my (undef, $rows, $rv) = @_;
             
             unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
@@ -451,7 +452,8 @@ sub NodeList {
                 if (ref($_) eq 'ARRAY') {
                     {
                         uuid => $_->[0],
-                        uri => $_->[1]
+                        uri => $_->[1],
+                        mode => $_->[2]
                     };
                 } else {
                     $@ = 'Database error'; # TODO better error
@@ -590,7 +592,7 @@ sub ClusterNodes {
             return;
         }
         
-        $dbh->execute('SELECT node_uuid FROM cluster_node WHERE cluster_uuid = ?', $cluster_uuid, sub {
+        $dbh->execute('SELECT n.node_uuid, n.node_uri, n.node_mode FROM cluster_node cn INNER JOIN nodes n ON n.node_uuid = cn.node_uuid WHERE cn.cluster_uuid = ?', $cluster_uuid, sub {
             my (undef, $rows, $rv) = @_;
             
             unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
@@ -603,7 +605,9 @@ sub ClusterNodes {
             $cb->(map {
                 if (ref($_) eq 'ARRAY') {
                     {
-                        node_uuid => $_->[0]
+                        uuid => $_->[0],
+                        uri => $_->[1],
+                        mode => $_->[2]
                     };
                 } else {
                     $@ = 'Database error'; # TODO better error
@@ -640,7 +644,7 @@ sub ClusterZones {
             return;
         }
         
-        $dbh->execute('SELECT zone_uuid FROM cluster_zone WHERE cluster_uuid = ?', $cluster_uuid, sub {
+        $dbh->execute('SELECT z.zone_uuid, z.zone_name FROM cluster_zone cz INNER JOIN zones z ON z.zone_uuid = cz.zone_uuid WHERE cz.cluster_uuid = ?', $cluster_uuid, sub {
             my (undef, $rows, $rv) = @_;
             
             unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
@@ -653,7 +657,8 @@ sub ClusterZones {
             $cb->(map {
                 if (ref($_) eq 'ARRAY') {
                     {
-                        zone_uuid => $_->[0]
+                        uuid => $_->[0],
+                        name => $_->[1]
                     };
                 } else {
                     $@ = 'Database error'; # TODO better error
@@ -679,13 +684,13 @@ Object example in the array:
     cluster_mode => 'string',
     nodes => [
         {
-            node_uuid => 'string',
+            uuid => 'string',
             ...
         }
     ],
     zones => [
         {
-            zone_uuid => 'string',
+            uuid => 'string',
             ...
         }
     ]
@@ -737,7 +742,7 @@ sub ClusterConfig {
                 }
             } @$rows;
             
-            $dbh->execute('SELECT cn.cluster_uuid, n.node_uuid, n.node_uri
+            $dbh->execute('SELECT cn.cluster_uuid, n.node_uuid, n.node_uri, n.node_mode
                 FROM cluster_node cn
                 INNER JOIN nodes n ON n.node_uuid = cn.node_uuid', sub
             {
@@ -760,7 +765,8 @@ sub ClusterConfig {
                     
                     push(@{$cluster{$_->[0]}->{nodes}}, {
                         uuid => $_->[1],
-                        uri => $_->[2]
+                        uri => $_->[2],
+                        mode => $_->[3]
                     });
                 }
 
