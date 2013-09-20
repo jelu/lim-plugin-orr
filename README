@@ -40,11 +40,35 @@ These are the components within Orr and a description on what they do.
 
 CLUSTER MODES
 
-**description to be written**
-
   BACKUP
+    A multi-node setup where the information is backed up onto SECONDARY nodes
+    and a manual switch is needed if the PRIMARY node fails.
+    All nodes in both modes are active, running and processing zones.
+
   FAILOVER
+    A multi-node setup where the information is backed up onto SECONDARY nodes
+    and an automatic switch is performed if the PRIMARY node fails, upgrading
+    a SECONDARY node to PRIMARY and downgrading the PRIMARY to SECONDARY.
+    All nodes in both modes are active, running and processing zones.
+
   BALANCE
+    A multi-node setup where the information is balanced over the nodes and is
+    backed up across additional nodes by a given ratio. The nodes mode has no
+    significance in this mode.
+    Nodes with backed up information are not actively processing the backed up
+    zone information.
+    Upon a node failure, the active zones on that node will become active on
+    one of the backed up nodes and then balanced out again to the configured
+    ratio.
+
+NODE MODES
+
+  PRIMARY
+    The primary node, considered as master. There SHOULD only be one.
+
+  SECONDARY
+    The secondary node, considered as slave/backup. There SHOULD at least be
+    one.
 
 INSTALLATION
 
