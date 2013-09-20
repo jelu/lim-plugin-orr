@@ -211,7 +211,7 @@ sub Run {
         }
         
         #
-        # Fetch zone content if there is none
+        # Fetch zone content
         #
         unless (exists $zone->{content}) {
             Lim::DEBUG and $self->{logger}->debug('Fetching zone content for zone ', $zone->{uuid});
@@ -235,18 +235,40 @@ sub Run {
         }
         
         #
-        # Check zone for updates
+        # Configure/Initiate/Verify HSM
         #
         
         #
-        # Add or update zone in NodeWatcher
+        # Configure/Initiate/Verify Policy
         #
         
         #
-        # 
+        # Configure/Initiate/Verify Zone
+        #
+
+        #
+        # Roll KSK
         #
         
-        # TODO logic
+        #
+        # Sync KSK
+        #
+        
+        #
+        # Roll ZSK
+        #
+
+        #
+        # Sync ZSK
+        #
+        
+        #
+        # Update Zone
+        #
+        
+        #
+        # Fetch signed zone
+        #
     }
     
     $self->{logger}->debug('Run() done');
