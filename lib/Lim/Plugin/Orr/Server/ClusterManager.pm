@@ -6,6 +6,7 @@ use Carp;
 use Scalar::Util qw(weaken blessed);
 use AnyEvent ();
 use Log::Log4perl ();
+use XML::LibXML ();
 
 use Lim::Plugin::Orr ();
 use Lim::Plugin::Orr::Server::NodeWatcher ();
@@ -55,7 +56,10 @@ sub new {
     my %args = ( @_ );
     my $self = {
         logger => Log::Log4perl->get_logger,
-        zone => {}
+        zone => {},
+        lock => 0,
+        failure => 0,
+        bootstrap => 1
     };
     bless $self, $class;
 
@@ -65,6 +69,22 @@ sub new {
     unless (defined $args{mode}) {
         confess __PACKAGE__, ': Missing mode';
     }
+
+    unless (exists $args{policy} and ref($args{policy}) eq 'HASH') {
+        confess __PACKAGE__, ': Missing policy or not HASH';
+    }
+    unless (defined $args{policy}->{uuid}) {
+        confess __PACKAGE__, ': Missing policy->uuid';
+    }
+    unless (defined $args{policy}->{xml}) {
+        confess __PACKAGE__, ': Missing policy->xml';
+    }
+    # TODO validate XML
+
+    unless (exists $args{hsm} and ref($args{hsm}) eq 'ARRAY') {
+        confess __PACKAGE__, ': Missing hsm or not ARRAY';
+    }
+
     
     if (exists $args{zones}) {
         unless (ref($args{zones}) eq 'ARRAY') {
@@ -195,8 +215,53 @@ sub Stop {
 sub Run {
     my ($self) = @_;
     weaken($self);
+
+    if ($self->{lock} or $self->{failure}) {
+        $self->Timer;
+        return;
+    }
+
+    if ($self->{bootstrap} and !$self->{node_watcher}->AnyOnline) {
+        $self->Timer;
+        return;
+    }
     
     $self->{logger}->debug('Run() start');
+
+    #
+    # Verify Node versions
+    #
+    unless (exists $self->{version}) {
+        Lim::DEBUG and $self->{logger}->debug('Fetching version information from nodes');
+        $self->{lock} = 1;
+        $self->{node_watcher}->Versions(sub {
+            my ($result) = @_;
+            
+            unless (defined $self) {
+                return;
+            }
+            
+            if (ref($result) eq 'HASH') {
+                # TODO verify version
+                
+                $self->{version} = $result;
+            }
+            
+            $self->{lock} = 0;
+        });
+        $self->Timer;
+        return;
+    }
+    
+    #
+    # Configure/Initiate/Verify HSM
+    #
+    
+    #
+    # Configure/Initiate/Verify Policy
+    #
+    
+    $self->{bootstrap} = 0;
     
     #
     # Process zones
@@ -233,14 +298,6 @@ sub Run {
             });
             next;
         }
-        
-        #
-        # Configure/Initiate/Verify HSM
-        #
-        
-        #
-        # Configure/Initiate/Verify Policy
-        #
         
         #
         # Configure/Initiate/Verify Zone
@@ -290,7 +347,7 @@ Please report any bugs or feature requests to L<https://github.com/jelu/lim-plug
 
 You can find documentation for this module with the perldoc command.
 
-    perldoc Lim::Plugin::Orr
+    perldoc Lim::Plugin::Orr::Server::ClusterManager
 
 You can also look for information at:
 

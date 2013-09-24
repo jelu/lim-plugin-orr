@@ -8,7 +8,7 @@ use AnyEvent ();
 use Log::Log4perl ();
 
 use Lim::Plugin::Orr ();
-use Lim::Plugin::Orr::Server::Node ();
+use Lim::Plugin::Orr::Server::NodeFactory ();
 
 =encoding utf8
 
@@ -72,7 +72,8 @@ sub new {
     my %args = ( @_ );
     my $self = {
         logger => Log::Log4perl->get_logger,
-        node => {}
+        node => {},
+        
     };
     bless $self, $class;
 
@@ -201,7 +202,7 @@ sub Add {
     
     my $node;
     eval {
-        $node = Lim::Plugin::Orr::Server::Node->new(uri => $args{uri});
+        $node = Lim::Plugin::Orr::Server::NodeFactory->new(uri => $args{uri});
     };
     if ($@) {
         $@ = 'Unable to create Node object: '.$@;
@@ -233,6 +234,63 @@ sub Remove {
         
         $self->{node}->{$uuid}->{remove} = 1;
     }
+}
+
+=item Versions
+
+=cut
+
+sub Versions {
+    my ($self, $cb) = @_;
+    
+    unless (ref($cb) eq 'CODE') {
+        confess __PACKAGE__, ': Missing cb or is not CODE';
+    }
+    
+    my $result = {};
+    my $nodes = 0;
+    foreach my $node (values %{$self->{node}}) {
+        my $uuid = $node->{uuid};
+
+        if ($node->{state} == STATE_OFFLINE) {
+            $result->{$uuid} = undef;
+            next;
+        }
+        
+        $node->{node}->Versions(sub {
+            my ($version) = @_;
+            
+            if (ref($version) eq 'HASH') {
+                $result->{$uuid} = $version;
+            }
+            $nodes--;
+            
+            unless ($nodes) {
+                $cb->($result);
+            }
+        });
+        $nodes++;
+    }
+    
+    unless ($nodes) {
+        $cb->($result);
+    }
+}
+
+=item AnyOnline
+
+=cut
+
+sub AnyOnline {
+    my ($self) = @_;
+    
+    foreach my $node (values %{$self->{node}}) {
+        if ($node->{state} == STATE_ONLINE) {
+            return 1;
+        }
+    }
+    
+    return;
 }
 
 =item ZoneAdd
@@ -270,7 +328,7 @@ Please report any bugs or feature requests to L<https://github.com/jelu/lim-plug
 
 You can find documentation for this module with the perldoc command.
 
-    perldoc Lim::Plugin::Orr
+    perldoc Lim::Plugin::Orr::Server::NodeWatcher
 
 You can also look for information at:
 

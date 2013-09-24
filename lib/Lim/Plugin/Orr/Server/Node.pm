@@ -126,6 +126,144 @@ sub LastCall {
     $_[0]->{last_call};
 }
 
+=item Versions
+
+=cut
+
+sub Versions {
+    my ($self, $cb) = @_;
+    weaken($self);
+
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+    
+    my $result = {};
+    my $agent = Lim::Agent->Client;
+    $agent->ReadPlugins(sub {
+        my ($call, $response) = @_;
+        
+        unless (defined $self) {
+            undef $agent;
+            return;
+        }
+        
+        if ($call->Successful) {
+            $self->{last_call} = time;
+            
+            if (exists $response->{plugin}) {
+                foreach my $plugin (ref($response->{plugin}) eq 'ARRAY' ? @{$response->{plugin}} : $response->{plugin}) {
+                    unless ($plugin->{loaded}) {
+                        next;
+                    }
+                    
+                    $result->{plugin}->{$plugin->{name}} = $plugin->{version}
+                }
+            }
+
+            if (exists $result->{plugin}->{SoftHSM}) {
+                my $softhsm = Lim::Plugin::SoftHSM->Client;
+                $softhsm->ReadVersion(sub {
+                    my ($call, $response) = @_;
+                
+                    unless (defined $self) {
+                        undef $softhsm;
+                        return;
+                    }
+                    
+                    if ($call->Successful) {
+                        $self->{last_call} = time;
+
+                        if (exists $response->{program}) {
+                            foreach my $program (ref($response->{program}) eq 'ARRAY' ? @{$response->{program}} : $response->{program}) {
+                                $result->{program}->{$program->{name}} = $program->{version}
+                            }
+                        }
+
+                        if (exists $result->{plugin}->{OpenDNSSEC}) {
+                            my $opendnssec = Lim::Plugin::OpenDNSSEC->Client;
+                            $opendnssec->ReadVersion(sub {
+                                my ($call, $response) = @_;
+                            
+                                unless (defined $self) {
+                                    undef $opendnssec;
+                                    return;
+                                }
+                                
+                                if ($call->Successful) {
+                                    $self->{last_call} = time;
+            
+                                    if (exists $response->{program}) {
+                                        foreach my $program (ref($response->{program}) eq 'ARRAY' ? @{$response->{program}} : $response->{program}) {
+                                            $result->{program}->{$program->{name}} = $program->{version}
+                                        }
+                                    }
+            
+                                    $cb->($result);
+                                }
+                                else {
+                                    $cb->();
+                                }
+                                undef $opendnssec;
+                            }, {
+                                host => $self->{host},
+                                port => $self->{port}
+                            });
+                        }
+                        else {
+                            $cb->($result);
+                        }
+                    }
+                    else {
+                        $cb->();
+                    }
+                    undef $softhsm;
+                }, {
+                    host => $self->{host},
+                    port => $self->{port}
+                });
+            }
+            elsif (exists $result->{plugin}->{OpenDNSSEC}) {
+                my $opendnssec = Lim::Plugin::OpenDNSSEC->Client;
+                $opendnssec->ReadVersion(sub {
+                    my ($call, $response) = @_;
+                
+                    unless (defined $self) {
+                        undef $opendnssec;
+                        return;
+                    }
+                    
+                    if ($call->Successful) {
+                        $self->{last_call} = time;
+
+                        if (exists $response->{program}) {
+                            foreach my $program (ref($response->{program}) eq 'ARRAY' ? @{$response->{program}} : $response->{program}) {
+                                $result->{program}->{$program->{name}} = $program->{version}
+                            }
+                        }
+
+                        $cb->($result);
+                    }
+                    else {
+                        $cb->();
+                    }
+                    undef $opendnssec;
+                }, {
+                    host => $self->{host},
+                    port => $self->{port}
+                });
+            }
+        }
+        else {
+            $cb->();
+        }
+        undef $agent;
+    }, {
+        host => $self->{host},
+        port => $self->{port}
+    });
+}
+
 =back
 
 =head1 AUTHOR
@@ -140,7 +278,7 @@ Please report any bugs or feature requests to L<https://github.com/jelu/lim-plug
 
 You can find documentation for this module with the perldoc command.
 
-    perldoc Lim::Plugin::Orr
+    perldoc Lim::Plugin::Orr::Server::Node
 
 You can also look for information at:
 

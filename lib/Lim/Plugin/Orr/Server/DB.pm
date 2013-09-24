@@ -261,6 +261,32 @@ our @__tables = (
   
   primary key (cluster_uuid, zone_uuid),
   unique (zone_uuid)
+)',
+'CREATE TABLE hsms (
+  hsm_uuid varchar(36) not null,
+
+  hsm_xml text not null,
+
+  primary key (hsm_uuid)
+)',
+'CREATE TABLE cluster_hsm (
+  cluster_uuid varchar(36) not null,
+  hsm_uuid varchar(36) not null,
+  
+  primary key (cluster_uuid, hsm_uuid)
+)',
+'CREATE TABLE policies (
+  policy_uuid varchar(36) not null,
+
+  policy_xml text not null,
+
+  primary key (policy_uuid)
+)',
+'CREATE TABLE cluster_policy (
+  cluster_uuid varchar(36) not null,
+  policy_uuid varchar(36) not null,
+  
+  primary key (cluster_uuid)
 )'
 );
 
@@ -278,7 +304,81 @@ our @__data = (
     [ 'INSERT INTO clusters ( cluster_uuid, cluster_mode ) VALUES ( ?, ? )', __uuid, 'BACKUP' ],
     [ 'INSERT INTO cluster_node SELECT cluster_uuid, node_uuid FROM clusters, nodes' ],
     [ 'INSERT INTO cluster_zone SELECT cluster_uuid, zone_uuid FROM clusters, zones' ],
-    [ 'INSERT INTO version ( version ) VALUES ( ? )', $VERSION ]
+    [ 'INSERT INTO version ( version ) VALUES ( ? )', $VERSION ],
+    [ 'INSERT INTO hsms VALUES ( ?, ? )',
+        __uuid,
+'<Repository name="SoftHSM">
+    <Module>/usr/lib/softhsm/libsofthsm.so</Module>
+    <TokenLabel>OpenDNSSEC</TokenLabel>
+    <PIN>1234</PIN>
+    <SkipPublicKey/>
+</Repository>'
+    ],
+    [ 'INSERT INTO cluster_hsm SELECT cluster_uuid, hsm_uuid FROM clusters, hsms' ],
+    [ 'INSERT INTO policies VALUES ( ?, ? )',
+        __uuid,
+'<Policy name="orr-default">
+    <Description>The default policy for Orr</Description>
+    <Signatures>
+        <Resign>PT2H</Resign>
+        <Refresh>P3D</Refresh>
+        <Validity>
+            <Default>P7D</Default>
+            <Denial>P7D</Denial>
+        </Validity>
+        <Jitter>PT12H</Jitter>
+        <InceptionOffset>PT3600S</InceptionOffset>
+    </Signatures>
+    <Denial>
+        <NSEC3>
+            <Resalt>P100D</Resalt>
+            <Hash>
+                <Algorithm>1</Algorithm>
+                <Iterations>5</Iterations>
+                <Salt length="8" />
+            </Hash>
+        </NSEC3>
+    </Denial>
+    <Keys>
+        <TTL>PT3600S</TTL>
+        <RetireSafety>PT3600S</RetireSafety>
+        <PublishSafety>PT3600S</PublishSafety>
+        <Purge>P14D</Purge>
+        <KSK>
+            <Algorithm length="2048">8</Algorithm>
+            <Lifetime>P1Y</Lifetime>
+            <Repository>SoftHSM</Repository>
+            <ManualRollover />
+        </KSK>
+        <ZSK>
+            <Algorithm length="1024">8</Algorithm>
+            <Lifetime>P30D</Lifetime>
+            <Repository>SoftHSM</Repository>
+            <ManualRollover />
+        </ZSK>
+    </Keys>
+    <Zone>
+        <PropagationDelay>PT43200S</PropagationDelay>
+        <SOA>
+            <TTL>PT3600S</TTL>
+            <Minimum>PT3600S</Minimum>
+            <Serial>datecounter</Serial>
+        </SOA>
+    </Zone>
+    <Parent>
+        <PropagationDelay>PT9999S</PropagationDelay>
+        <DS>
+            <TTL>PT3600S</TTL>
+        </DS>
+        <SOA>
+            <TTL>PT172800S</TTL>
+            <Minimum>PT10800S</Minimum>
+        </SOA>
+    </Parent>
+    <Audit />
+</Policy>'
+    ],
+    [ 'INSERT INTO cluster_policy SELECT cluster_uuid, policy_uuid FROM clusters, policies' ],
 );
 
 sub Create {
@@ -680,8 +780,18 @@ Manager with during start up.
 Object example in the array:
 
 {
-    cluster_uuid => 'string',
-    cluster_mode => 'string',
+    uuid => 'string',
+    mode => 'string',
+    policy => {
+        uuid => 'string',
+        xml => 'string'
+    },
+    hsm => [
+        {
+            uuid => 'string',
+            xml => 'string'
+        }
+    ],
     nodes => [
         {
             uuid => 'string',
@@ -720,7 +830,7 @@ sub ClusterConfig {
             my (undef, $rows, $rv) = @_;
             
             unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
-                $@ = 'Database error'; # TODO better error
+                $@ = 'Database error clusters'; # TODO better error
                 $cb->();
                 undef $dbh;
                 return;
@@ -735,21 +845,21 @@ sub ClusterConfig {
                         zones => []
                     };
                 } else {
-                    $@ = 'Database error'; # TODO better error
+                    $@ = 'Database error cluster rows'; # TODO better error
                     $cb->();
                     undef $dbh;
                     return;
                 }
             } @$rows;
             
-            $dbh->execute('SELECT cn.cluster_uuid, n.node_uuid, n.node_uri, n.node_mode
-                FROM cluster_node cn
-                INNER JOIN nodes n ON n.node_uuid = cn.node_uuid', sub
+            $dbh->execute('SELECT cp.cluster_uuid, p.policy_uuid, p.policy_xml
+                FROM cluster_policy cp
+                INNER JOIN policies p ON p.policy_uuid = cp.policy_uuid', sub
             {
                 my (undef, $rows, $rv) = @_;
                 
-                unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
-                    $@ = 'Database error'; # TODO better error
+                unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows == 1) {
+                    $@ = 'Database error policies'; # TODO better error
                     $cb->();
                     undef $dbh;
                     return;
@@ -757,27 +867,26 @@ sub ClusterConfig {
                 
                 foreach (@$rows) {
                     unless (ref($_) eq 'ARRAY') {
-                        $@ = 'Database error'; # TODO better error
+                        $@ = 'Database error policy row'; # TODO better error
                         $cb->();
                         undef $dbh;
                         return;
                     }
                     
-                    push(@{$cluster{$_->[0]}->{nodes}}, {
+                    $cluster{$_->[0]}->{policy} = {
                         uuid => $_->[1],
-                        uri => $_->[2],
-                        mode => $_->[3]
-                    });
+                        xml => $_->[2]
+                    };
                 }
 
-                $dbh->execute('SELECT cz.cluster_uuid, z.zone_uuid, z.zone_name, z.zone_input_type, z.zone_input_data
-                    FROM cluster_zone cz
-                    INNER JOIN zones z ON z.zone_uuid = cz.zone_uuid', sub
+                $dbh->execute('SELECT ch.cluster_uuid, h.hsm_uuid, h.hsm_xml
+                    FROM cluster_hsm ch
+                    INNER JOIN hsms h ON h.hsm_uuid = ch.hsm_uuid', sub
                 {
                     my (undef, $rows, $rv) = @_;
                     
                     unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
-                        $@ = 'Database error'; # TODO better error
+                        $@ = 'Database error hsms'; # TODO better error
                         $cb->();
                         undef $dbh;
                         return;
@@ -785,22 +894,79 @@ sub ClusterConfig {
                     
                     foreach (@$rows) {
                         unless (ref($_) eq 'ARRAY') {
-                            $@ = 'Database error'; # TODO better error
+                            $@ = 'Database error hsm row'; # TODO better error
                             $cb->();
                             undef $dbh;
                             return;
                         }
                         
-                        push(@{$cluster{$_->[0]}->{zones}}, {
+                        push(@{$cluster{$_->[0]}->{hsm}}, {
                             uuid => $_->[1],
-                            name => $_->[2],
-                            input_type => $_->[3],
-                            input_data => $_->[4]
+                            xml => $_->[2]
                         });
                     }
-                    
-                    $cb->(values %cluster);
-                    undef $dbh;
+    
+                    $dbh->execute('SELECT cn.cluster_uuid, n.node_uuid, n.node_uri, n.node_mode
+                        FROM cluster_node cn
+                        INNER JOIN nodes n ON n.node_uuid = cn.node_uuid', sub
+                    {
+                        my (undef, $rows, $rv) = @_;
+                        
+                        unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
+                            $@ = 'Database error nodes'; # TODO better error
+                            $cb->();
+                            undef $dbh;
+                            return;
+                        }
+                        
+                        foreach (@$rows) {
+                            unless (ref($_) eq 'ARRAY') {
+                                $@ = 'Database error node row'; # TODO better error
+                                $cb->();
+                                undef $dbh;
+                                return;
+                            }
+                            
+                            push(@{$cluster{$_->[0]}->{nodes}}, {
+                                uuid => $_->[1],
+                                uri => $_->[2],
+                                mode => $_->[3]
+                            });
+                        }
+        
+                        $dbh->execute('SELECT cz.cluster_uuid, z.zone_uuid, z.zone_name, z.zone_input_type, z.zone_input_data
+                            FROM cluster_zone cz
+                            INNER JOIN zones z ON z.zone_uuid = cz.zone_uuid', sub
+                        {
+                            my (undef, $rows, $rv) = @_;
+                            
+                            unless (defined $self and $rv and ref($rows) eq 'ARRAY' and scalar @$rows) {
+                                $@ = 'Database error zones'; # TODO better error
+                                $cb->();
+                                undef $dbh;
+                                return;
+                            }
+                            
+                            foreach (@$rows) {
+                                unless (ref($_) eq 'ARRAY') {
+                                    $@ = 'Database error zone row'; # TODO better error
+                                    $cb->();
+                                    undef $dbh;
+                                    return;
+                                }
+                                
+                                push(@{$cluster{$_->[0]}->{zones}}, {
+                                    uuid => $_->[1],
+                                    name => $_->[2],
+                                    input_type => $_->[3],
+                                    input_data => $_->[4]
+                                });
+                            }
+                            
+                            $cb->(values %cluster);
+                            undef $dbh;
+                        });
+                    });
                 });
             });
         });
@@ -821,7 +987,7 @@ Please report any bugs or feature requests to L<https://github.com/jelu/lim-plug
 
 You can find documentation for this module with the perldoc command.
 
-    perldoc Lim::Plugin::Orr
+    perldoc Lim::Plugin::Orr::Server::DB
 
 You can also look for information at:
 

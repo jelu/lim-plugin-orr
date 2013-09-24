@@ -206,7 +206,7 @@ Please report any bugs or feature requests to L<https://github.com/jelu/lim-plug
 
 You can find documentation for this module with the perldoc command.
 
-    perldoc Lim::Plugin::Orr
+    perldoc Lim::Plugin::Orr::Server::ZoneInput
 
 You can also look for information at:
 
