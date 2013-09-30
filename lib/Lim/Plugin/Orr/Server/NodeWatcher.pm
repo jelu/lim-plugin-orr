@@ -10,6 +10,16 @@ use Log::Log4perl ();
 use Lim::Plugin::Orr ();
 use Lim::Plugin::Orr::Server::NodeFactory ();
 
+use base qw(Exporter);
+our @EXPORT = qw(
+    NODE_STATE_UNKNOWN
+    NODE_STATE_OFFLINE
+    NODE_STATE_ONLINE
+    NODE_STATE_FAILURE
+    NODE_STATE_STANDBY
+    NODE_STATE_DISABLED
+);
+
 =encoding utf8
 
 =head1 NAME
@@ -43,16 +53,44 @@ actions such as syncing information between nodes.
 
 =over 4
 
-=item STATE_OFFLINE
+=item NODE_STATE_UNKNOWN
 
-=item STATE_ONLINE
+This is the first state of a node before anything is known about the node.
+
+=item NODE_STATE_OFFLINE
+
+Indicates that the node is not online.
+
+=item NODE_STATE_ONLINE
+
+Indicates that the node is online and operational.
+
+=item NODE_STATE_FAILURE
+
+Indicates that the node has failed and all processing for this node has stopped.
+User intervention is needed at this state.
+
+=item NODE_STATE_STANDBY
+
+Indicates that a node has been in OFFLINE or FAILURE state but is now reachable
+again but has not been included back into the cluster or is just standing by for
+redundancy in case another node fails.
+
+=item NODE_STATE_DISABLED
+
+Indicates that the node is disabled and will not be used in the cluster.
+Can only be set through manual actions.
 
 =back
 
 =cut
 
-sub STATE_OFFLINE (){ 0 }
-sub STATE_ONLINE  (){ 1 }
+sub NODE_STATE_UNKNOWN  (){ 0 }
+sub NODE_STATE_OFFLINE  (){ 1 }
+sub NODE_STATE_ONLINE   (){ 2 }
+sub NODE_STATE_FAILURE  (){ 3 }
+sub NODE_STATE_STANDBY  (){ 4 }
+sub NODE_STATE_DISABLED (){ 5 }
 
 =head1 METHODS
 
@@ -146,7 +184,12 @@ sub Run {
         # Ping the node if its offline or if its time to ping it again to check
         # that it is alive
         #
-        if ($node->{state} == STATE_OFFLINE or $node->{node}->LastCall < (time - $NODE_REPING)) {
+        if ($node->{state} == NODE_STATE_UNKNOWN or
+            $node->{state} == NODE_STATE_OFFLINE or
+            (($node->{state} == NODE_STATE_ONLINE or
+              $node->{state} == NODE_STATE_STANDBY)
+             and $node->{node}->LastCall < (time - $NODE_REPING)))
+        {
             Lim::DEBUG and $self->{logger}->debug('Pinging node ', $node->{uuid});
             $node->{lock} = 1;
             $node->{node}->Ping(sub {
@@ -157,15 +200,16 @@ sub Run {
                 }
                 
                 if ($success) {
-                    if ($node->{state} != STATE_ONLINE) {
-                        Lim::DEBUG and $self->{logger}->debug('Node ', $node->{uuid}, ' STATE ONLINE');
-                        $node->{state} = STATE_ONLINE;
+                    if ($node->{state} == NODE_STATE_UNKNOWN or $node->{state} == NODE_STATE_OFFLINE) {
+                        Lim::DEBUG and $self->{logger}->debug('Node ', $node->{uuid}, ' STATE STANDBY');
+                        $node->{state} = NODE_STATE_STANDBY;
                     }
                 }
                 else {
-                    if ($node->{state} != STATE_OFFLINE) {
+                    if ($node->{state} == NODE_STATE_ONLINE or $node->{state} == NODE_STATE_STANDBY or $node->{state} == NODE_STATE_UNKNOWN) {
                         Lim::DEBUG and $self->{logger}->debug('Node ', $node->{uuid}, ' STATE OFFLINE');
-                        $node->{state} = STATE_OFFLINE;
+                        $node->{state} = NODE_STATE_OFFLINE;
+                        $node->{cache} = {};
                     }
                 }
                 $node->{lock} = 0;
@@ -214,9 +258,10 @@ sub Add {
     $self->{node}->{$args{uuid}} = {
         uuid => $args{uuid},
         uri => $args{uri},
-        state => STATE_OFFLINE,
+        state => NODE_STATE_UNKNOWN,
         node => $node,
-        remove => 0
+        remove => 0,
+        cache => {}
     };
     
     return 1;
@@ -252,8 +297,13 @@ sub Versions {
     foreach my $node (values %{$self->{node}}) {
         my $uuid = $node->{uuid};
 
-        if ($node->{state} == STATE_OFFLINE) {
+        unless ($node->{state} == NODE_STATE_ONLINE or $node->{state} == NODE_STATE_STANDBY) {
             $result->{$uuid} = undef;
+            next;
+        }
+        
+        if (exists $node->{cache}->{versions}) {
+            $result->{$uuid} = $node->{cache}->{versions};
             next;
         }
         
@@ -261,7 +311,7 @@ sub Versions {
             my ($version) = @_;
             
             if (ref($version) eq 'HASH') {
-                $result->{$uuid} = $version;
+                $node->{cache}->{versions} = $result->{$uuid} = $version;
             }
             $nodes--;
             
@@ -277,20 +327,14 @@ sub Versions {
     }
 }
 
-=item AnyOnline
+=item NodeStates
 
 =cut
 
-sub AnyOnline {
+sub NodeStates {
     my ($self) = @_;
     
-    foreach my $node (values %{$self->{node}}) {
-        if ($node->{state} == STATE_ONLINE) {
-            return 1;
-        }
-    }
-    
-    return;
+    map { $_->{uuid} => $_->{state} } values %{$self->{node}};
 }
 
 =item ZoneAdd

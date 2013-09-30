@@ -16,16 +16,16 @@ ARCHITECTURE
 These are the components within Orr and a description on what they do.
 
   Lim::Plugin::Orr::Server
-    The main RPC component, it starts a NodeWatcher and manage the
-    database containing all configurations.
+    The main RPC component, it starts ClusterManagers and manage the database
+    containing all configurations.
 
   Lim::Plugin::Orr::Server::DB
     The main database layer, it handles the database connection, creation
     and upgrade.
 
   Lim::Plugin::Orr::Server::NodeWatcher
-    The main node logic component, it starts a watchers to manage the nodes and
-    synchronize data between them.
+    The main node logic component, it starts watchers to manage the nodes and
+    synchronize data between them. Used mainly by the ClusterManager.
 
   Lim::Plugin::Orr::Server::Node
     A node communication component, it simplifies communication with all
@@ -61,6 +61,37 @@ CLUSTER MODES
     one of the backed up nodes and then balanced out again to the configured
     ratio.
 
+CLUSTER STATES
+
+  (RE)INITIALIZING
+    The first state of a cluster and it happens when you first start a cluster,
+    when a configuration change has been made on a cluster, when a cluster is
+    recovering from DEGRADED state or brought back from a FAILURE/DISABLED
+    state.
+    For example this state will (re)initialize all configuration on all nodes,
+    check for updated zone content and push that out.
+
+  OPERATIONAL
+    This is the state when everything is up and running as it should. It will
+    continuously check for zone content updates, push that out if there are
+    updates, manager ZSK/KSK synchronization/rollovers and push signed zone
+    contents to configured outputs.
+
+  DEGRADED
+    This state is much like OPERATIONAL but part of the cluster is not working
+    as it should but enough is working to continue. This can happen if a node
+    can't be reached or is failing.
+
+  FAILURE
+    This is a serious and fatal state, something happened so that the cluster
+    can not continue and has stopped all processing.
+    User intervention is needed at this state since the cluster can not repair
+    it self.
+
+  DISALBED
+    This indicates that the cluster is disabled.
+    Can only be set through manual actions.
+
 NODE MODES
 
   PRIMARY
@@ -69,6 +100,31 @@ NODE MODES
   SECONDARY
     The secondary node, considered as slave/backup. There SHOULD at least be
     one.
+
+NODE STATES
+
+  UNKNOWN
+    This is the first state of a node before anything is known about the node.
+
+  OFFLINE
+    Indicates that the node is not online.
+
+  ONLINE
+    Indicates that the node is online and operational.
+
+  FAILURE
+    Indicates that the node has failed and all processing for this node has
+    stopped.
+    User intervention is needed at this state.
+
+  STANDBY
+    Indicates that a node has been in OFFLINE or FAILURE state but is now
+    reachable again but has not been included back into the cluster or is just
+    standing by for redundancy in case another node fails.
+
+  DISABLED
+    Indicates that the node is disabled and will not be used in the cluster.
+    Can only be set through manual actions.
 
 INSTALLATION
 

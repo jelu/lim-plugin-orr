@@ -9,8 +9,17 @@ use Log::Log4perl ();
 use XML::LibXML ();
 
 use Lim::Plugin::Orr ();
-use Lim::Plugin::Orr::Server::NodeWatcher ();
+use Lim::Plugin::Orr::Server::NodeWatcher qw(:DEFAULT);
 use Lim::Plugin::Orr::Server::ZoneInput ();
+
+use base qw(Exporter);
+our @EXPORT = qw(
+    CLUSTER_STATE_INITIALIZING
+    CLUSTER_STATE_OPERATIONAL
+    CLUSTER_STATE_DEGRADED
+    CLUSTER_STATE_FAILURE
+    CLUSTER_STATE_DISABLED
+);
 
 =encoding utf8
 
@@ -38,6 +47,53 @@ our $TIMER_INTERVAL = 5;
 
 This is a Cluster Manager for the OpenDNSSEC Redundancy Robot that will ...
 
+=head1 CLUSTER STATES
+
+=over 4
+
+=item CLUSTER_STATE_INITIALIZING
+
+The first state of a cluster and it happens when you first start a cluster, when
+a configuration change has been made on a cluster, when a cluster is recovering
+from DEGRADED state or brought back from a FAILURE/DISABLED state.
+For example this state will (re)initialize all configuration on all nodes, check
+for updated zone content and push that out.
+
+=item CLUSTER_STATE_OPERATIONAL
+
+This is the state when everything is up and running as it should. It will 
+continuously check for zone content updates, push that out if there are updates,
+manager ZSK/KSK synchronization/rollovers and push signed zone contents to
+configured outputs.
+
+=item CLUSTER_STATE_DEGRADED
+
+This state is much like OPERATIONAL but part of the cluster is not working as it
+should but enough is working to continue. This can happen if a node can't be
+reached or is failing.
+
+=item CLUSTER_STATE_FAILURE
+
+This is a serious and fatal state, something happened so that the cluster can
+not continue and has stopped all processing.
+User intervention is needed at this state since the cluster can not repair it
+self.
+
+=item CLUSTER_STATE_DISABLED
+
+This indicates that the cluster is disabled.
+Can only be set through manual actions.
+
+=back
+
+=cut
+
+sub CLUSTER_STATE_INITIALIZING (){ 0 }
+sub CLUSTER_STATE_OPERATIONAL  (){ 1 }
+sub CLUSTER_STATE_DEGRADED     (){ 2 }
+sub CLUSTER_STATE_FAILURE      (){ 3 }
+sub CLUSTER_STATE_DISABLED     (){ 4 }
+
 =head1 METHODS
 
 These methods handles the clusters for OpenDNSSEC Redundancy Robot.
@@ -58,8 +114,8 @@ sub new {
         logger => Log::Log4perl->get_logger,
         zone => {},
         lock => 0,
-        failure => 0,
-        bootstrap => 1
+        state => CLUSTER_STATE_INITIALIZING,
+        state_message => undef
     };
     bless $self, $class;
 
@@ -216,14 +272,19 @@ sub Run {
     my ($self) = @_;
     weaken($self);
 
-    if ($self->{lock} or $self->{failure}) {
+    if ($self->{lock} or $self->{state} == CLUSTER_STATE_FAILURE) {
         $self->Timer;
         return;
     }
 
-    if ($self->{bootstrap} and !$self->{node_watcher}->AnyOnline) {
-        $self->Timer;
-        return;
+    if ($self->{state} == CLUSTER_STATE_INITIALIZING) {
+        my %states = $self->{node_watcher}->NodeStates;
+        foreach (values %states) {
+            if ($_ == NODE_STATE_UNKNOWN) {
+                $self->Timer;
+                return;
+            }
+        }
     }
     
     $self->{logger}->debug('Run() start');
@@ -261,7 +322,7 @@ sub Run {
     # Configure/Initiate/Verify Policy
     #
     
-    $self->{bootstrap} = 0;
+    $self->{state} = CLUSTER_STATE_OPERATIONAL;
     
     #
     # Process zones
