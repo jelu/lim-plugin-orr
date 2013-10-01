@@ -36,6 +36,23 @@ See L<Lim::Plugin::Orr> for version.
 
 our $VERSION = $Lim::Plugin::Orr::VERSION;
 our $TIMER_INTERVAL = 5;
+our $SOFTWARE_VERSION = {
+    plugin => {
+        Agent => { min => '0.19', max => '0.19', required => 1 },
+        OpenDNSSEC => { min => '0.14', max => '0.14', required => 1 },
+        SoftHSM => { min => '0.14', max => '0.14', required => 0 },
+        DNS => { min => '0.12', max => '0.12', required => 0 },
+    },
+    program => {
+        'ods-control' => { min => '1', max => '1', required => 1 },
+        'ods-signerd' => { min => '1.3.14', max => '1.3.15', required => 1 },
+        'ods-signer' => { min => '1.3.14', max => '1.3.15', required => 1 },
+        'ods-enforcerd' => { min => '1.3.14', max => '1.3.15', required => 1 },
+        'ods-ksmutil' => { min => '1.3.14', max => '1.3.15', required => 1 },
+        'ods-hsmutil' => { min => '1.3.14', max => '1.3.15', required => 0 },
+        'softhsm' => { min => '1.3.3', max => '1.3.5', required => 0 }
+    }
+};
 
 =head1 SYNOPSIS
 
@@ -259,7 +276,7 @@ sub Timer {
 sub Stop {
     my ($self) = @_;
 
-    $self->{logger}->debug('Stop()');
+    $self->{logger}->debug($self->{uuid}, ': Stop()');
     
     delete $self->{timer};
 }
@@ -287,13 +304,13 @@ sub Run {
         }
     }
     
-    $self->{logger}->debug('Run() start');
+    $self->{logger}->debug($self->{uuid}, ': Run() start');
 
     #
     # Verify Node versions
     #
     unless (exists $self->{version}) {
-        Lim::DEBUG and $self->{logger}->debug('Fetching version information from nodes');
+        Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Fetching version information from nodes');
         $self->{lock} = 1;
         $self->{node_watcher}->Versions(sub {
             my ($result) = @_;
@@ -303,8 +320,53 @@ sub Run {
             }
             
             if (ref($result) eq 'HASH') {
-                # TODO verify version
+                foreach my $node_uuid (keys %$result) {
+                    unless (ref($result->{$node_uuid}) eq 'HASH') {
+                        $self->{state} = CLUSTER_STATE_FAILURE;
+                        $self->{state_message} = 'Unable to retrieve versions of software running on node '.$node_uuid.': no versions returned';
+                        $self->{lock} = 0;
+                        Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
+                        return;
+                    }
+                    my $node = $result->{$node_uuid};
+                    
+                    foreach my $what (qw(plugin program)) {
+                        unless (exists $node->{$what} and ref($node->{$what}) eq 'HASH') {
+                            $self->{state} = CLUSTER_STATE_FAILURE;
+                            $self->{state_message} = 'Unable to retrieve versions of software running on node '.$node_uuid.': structure for '.$what.' is invalid';
+                            $self->{lock} = 0;
+                            Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
+                            return;
+                        }
+                        
+                        foreach my $entry (keys %{$SOFTWARE_VERSION->{$what}}) {
+                            unless (exists $node->{$what}->{$entry}) {
+                                if ($SOFTWARE_VERSION->{$what}->{$entry}->{required}) {
+                                    $self->{state} = CLUSTER_STATE_FAILURE;
+                                    $self->{state_message} = 'Missing required software '.$entry.' for node '.$node_uuid;
+                                    $self->{lock} = 0;
+                                    Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
+                                    return;
+                                }
+                                next;
+                            }
+                            
+                            if (($SOFTWARE_VERSION->{$what}->{$entry}->{min} gt
+                                 $node->{$what}->{$entry}) or
+                                ($SOFTWARE_VERSION->{$what}->{$entry}->{max} lt
+                                 $node->{$what}->{$entry}))
+                            {
+                                $self->{state} = CLUSTER_STATE_FAILURE;
+                                $self->{state_message} = 'Software '.$entry.' version '.$node->{$what}->{$entry}.' on node '.$node_uuid.' is not supported. Supported are minimum version '.$SOFTWARE_VERSION->{$what}->{$entry}->{min}.' and maximum version '.$SOFTWARE_VERSION->{$what}->{$entry}->{max};
+                                $self->{lock} = 0;
+                                Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
+                                return;
+                            }
+                        }
+                    }
+                }
                 
+                Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Version information correct and supported');
                 $self->{version} = $result;
             }
             
@@ -332,7 +394,7 @@ sub Run {
         # Skip locked zones
         #
         if ($zone->{lock}) {
-            Lim::DEBUG and $self->{logger}->debug('Zone ', $zone->{uuid}, ' locked');
+            Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Zone ', $zone->{uuid}, ' locked');
             next;
         }
         
@@ -340,7 +402,7 @@ sub Run {
         # Fetch zone content
         #
         unless (exists $zone->{content}) {
-            Lim::DEBUG and $self->{logger}->debug('Fetching zone content for zone ', $zone->{uuid});
+            Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Fetching zone content for zone ', $zone->{uuid});
             $zone->{lock} = 1;
             $zone->{input}->Fetch(sub {
                 my ($content) = @_;
@@ -350,7 +412,7 @@ sub Run {
                 }
                 
                 if (defined $content) {
-                    Lim::DEBUG and $self->{logger}->debug('Zone content for zone ', $zone->{uuid}, ' fetched');
+                    Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Zone content for zone ', $zone->{uuid}, ' fetched');
                     $zone->{content} = $content;
                     $zone->{content_timestamp} = AnyEvent->now;
                 }
@@ -389,7 +451,7 @@ sub Run {
         #
     }
     
-    $self->{logger}->debug('Run() done');
+    $self->{logger}->debug($self->{uuid}, ': Run() done');
 
     $self->Timer;
 }
