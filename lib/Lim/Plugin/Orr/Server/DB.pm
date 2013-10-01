@@ -786,7 +786,7 @@ Object example in the array:
         uuid => 'string',
         xml => 'string'
     },
-    hsm => [
+    hsms => [
         {
             uuid => 'string',
             xml => 'string'
@@ -900,7 +900,7 @@ sub ClusterConfig {
                             return;
                         }
                         
-                        push(@{$cluster{$_->[0]}->{hsm}}, {
+                        push(@{$cluster{$_->[0]}->{hsms}}, {
                             uuid => $_->[1],
                             xml => $_->[2]
                         });

@@ -132,7 +132,8 @@ sub new {
         zone => {},
         lock => 0,
         state => CLUSTER_STATE_INITIALIZING,
-        state_message => undef
+        state_message => undef,
+        cache => {}
     };
     bless $self, $class;
 
@@ -153,11 +154,25 @@ sub new {
         confess __PACKAGE__, ': Missing policy->xml';
     }
     # TODO validate XML
+    $self->{policy} = $args{policy};
 
-    unless (exists $args{hsm} and ref($args{hsm}) eq 'ARRAY') {
+    unless (exists $args{hsms} and ref($args{hsms}) eq 'ARRAY') {
         confess __PACKAGE__, ': Missing hsm or not ARRAY';
     }
+    foreach (@{$args{hsms}}) {
+        unless (ref($_) eq 'HASH') {
+            confess __PACKAGE__, ': hsm item is not an hash ref';
+        }
 
+        foreach my $k (qw(uuid xml)) {
+            unless (exists $_->{$k}) {
+                confess __PACKAGE__, ': Missing ', $k, ' in hsm item';
+            }
+        }
+        
+        # TODO validate XML
+    }
+    $self->{hsms} = $args{hsms};
     
     if (exists $args{zones}) {
         unless (ref($args{zones}) eq 'ARRAY') {
@@ -294,6 +309,9 @@ sub Run {
         return;
     }
 
+    #
+    # At start when INITIALIZING, wait for all nodes to come out from UNKNOWN
+    #
     if ($self->{state} == CLUSTER_STATE_INITIALIZING) {
         my %states = $self->{node_watcher}->NodeStates;
         foreach (values %states) {
@@ -304,12 +322,15 @@ sub Run {
         }
     }
     
+    #
+    #
+    #
     $self->{logger}->debug($self->{uuid}, ': Run() start');
 
     #
     # Verify Node versions
     #
-    unless (exists $self->{version}) {
+    unless (exists $self->{cache}->{version}) {
         Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Fetching version information from nodes');
         $self->{lock} = 1;
         $self->{node_watcher}->Versions(sub {
@@ -324,6 +345,7 @@ sub Run {
                     unless (ref($result->{$node_uuid}) eq 'HASH') {
                         $self->{state} = CLUSTER_STATE_FAILURE;
                         $self->{state_message} = 'Unable to retrieve versions of software running on node '.$node_uuid.': no versions returned';
+                        $self->{cache} = {};
                         $self->{lock} = 0;
                         Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
                         return;
@@ -334,6 +356,7 @@ sub Run {
                         unless (exists $node->{$what} and ref($node->{$what}) eq 'HASH') {
                             $self->{state} = CLUSTER_STATE_FAILURE;
                             $self->{state_message} = 'Unable to retrieve versions of software running on node '.$node_uuid.': structure for '.$what.' is invalid';
+                            $self->{cache} = {};
                             $self->{lock} = 0;
                             Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
                             return;
@@ -344,6 +367,7 @@ sub Run {
                                 if ($SOFTWARE_VERSION->{$what}->{$entry}->{required}) {
                                     $self->{state} = CLUSTER_STATE_FAILURE;
                                     $self->{state_message} = 'Missing required software '.$entry.' for node '.$node_uuid;
+                                    $self->{cache} = {};
                                     $self->{lock} = 0;
                                     Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
                                     return;
@@ -358,6 +382,7 @@ sub Run {
                             {
                                 $self->{state} = CLUSTER_STATE_FAILURE;
                                 $self->{state_message} = 'Software '.$entry.' version '.$node->{$what}->{$entry}.' on node '.$node_uuid.' is not supported. Supported are minimum version '.$SOFTWARE_VERSION->{$what}->{$entry}->{min}.' and maximum version '.$SOFTWARE_VERSION->{$what}->{$entry}->{max};
+                                $self->{cache} = {};
                                 $self->{lock} = 0;
                                 Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
                                 return;
@@ -367,7 +392,8 @@ sub Run {
                 }
                 
                 Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Version information correct and supported');
-                $self->{version} = $result;
+                $self->{cache}->{version} = $result;
+                $self->Timer(0);
             }
             
             $self->{lock} = 0;
@@ -379,11 +405,46 @@ sub Run {
     #
     # Configure/Initiate/Verify HSM
     #
+    unless (exists $self->{cache}->{hsms_setup}) {
+        unless (exists $self->{cache}->{hsm_setup} and ref($self->{cache}->{hsm_setup}) eq 'HASH') {
+            $self->{cache}->{hsm_setup} = {};
+        }
+        
+        foreach my $hsm (@{$self->{hsms}}) {
+            if (exists $self->{cache}->{hsm_setup}->{$hsm}) {
+                next;
+            }
+
+            Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Setting up HSM ', $hsm->{uuid});
+            next;
+
+            $self->{lock} = 1;
+            $self->{node_watcher}->SetupHSM($hsm->{xml}, sub {
+                my ($result) = @_;
+                
+                unless (defined $self) {
+                    return;
+                }
+                
+                # TODO
+                
+                $self->{lock} = 0;
+            });
+            $self->Timer;
+            return;
+        }
+        
+        Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': All HSMs setup');
+        $self->{cache}->{hsms_setup} = 1;
+    }
     
     #
     # Configure/Initiate/Verify Policy
     #
     
+    #
+    #
+    #
     $self->{state} = CLUSTER_STATE_OPERATIONAL;
     
     #

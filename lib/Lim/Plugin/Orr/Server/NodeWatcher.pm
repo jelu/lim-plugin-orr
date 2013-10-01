@@ -327,6 +327,34 @@ sub Versions {
     }
 }
 
+=item SetupHSM
+
+=cut
+
+sub SetupHSM {
+    my ($self, $xml, $cb) = @_;
+    
+    unless (ref($cb) eq 'CODE') {
+        confess __PACKAGE__, ': Missing cb or is not CODE';
+    }
+    
+    # TODO
+}
+
+=item SetupPolicy
+
+=cut
+
+sub SetupPolicy {
+    my ($self, $cb) = @_;
+    
+    unless (ref($cb) eq 'CODE') {
+        confess __PACKAGE__, ': Missing cb or is not CODE';
+    }
+    
+    # TODO
+}
+
 =item NodeStates
 
 =cut
