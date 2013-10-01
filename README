@@ -11,9 +11,48 @@ For available RPC calls and CLI commands please see:
 
 	perldoc Lim::Plugin::Orr
 
+TERMINOLOGY
+
+A lot of the terminology comes from clustering and HA solutions but their
+meaning might differ slightly so it is important to have that in mind when
+reading the descriptions.
+
 ARCHITECTURE
 
-These are the components within Orr and a description on what they do.
+Here is a brief high level description of Orr and the parts within. Even if it
+can seem like a lot of different parts within Orr please note that because of
+how Lim and Orr is built the software can run on the same nodes as all the rest
+of the software.
+
+  +------------------------------------------------------------+
+  |  QUORUM                                                    |
+  |  (Orr)                                                     |
+  | +--------------------------------------------------------+ |
+  | |  CLUSTER                                               | |
+  | | +--------------+   +--------------+   +--------------+ | |
+  | | | NODE         |   | NODE         |   | NODE         | | |
+  | | | (OpenDNSSEC) |   | (OpenDNSSEC) |   | (OpenDNSSEC) | | |
+  | | | (SoftHSM)    |   | (SoftHSM)    |   | (SoftHSM)    | | |
+  | | +--------------+   +--------------+   +--------------+ | |
+  | +--------------------------------------------------------+ |
+  +------------------------------------------------------------+
+
+  QUORUM
+    The controlling element of Orr, this is Orr itself where all the logic
+    resides.
+    Future version will have the ability to have multiple Orr instances for
+    redundancy of the controlling element itself and that will be based on the
+    Quorum Cluster ideas.
+
+  CLUSTER
+    A set of non-connected nodes that are defined to process a set of zones.
+    This differ from the definition of Computer Cluster in the sense that they
+    are not connected to each other, all connections are made from the QUORUM.
+
+  NODE
+    The computer/server that has the software needed to process zones.
+
+These are the Perl components within Orr and a description on what they do.
 
   Lim::Plugin::Orr::Server
     The main RPC component, it starts ClusterManagers and manage the database
@@ -38,28 +77,33 @@ These are the components within Orr and a description on what they do.
   Lim::Plugin::Orr::Server::ZoneInput
     Component to gather the zone data/content from other external sources.
 
+QOURUM MODES
+
+QOURUM STATES
+
 CLUSTER MODES
 
   BACKUP
-    A multi-node setup where the information is backed up onto SECONDARY nodes
-    and a manual switch is needed if the PRIMARY node fails.
-    All nodes in both modes are active, running and processing zones.
+    A cluster setup of 2 or more nodes, one PRIMARY and one or more SECONDARY,
+    where the zone information is processed on all nodes.
+    If the PRIMARY node fails, a manual action must be taken to switch to a
+    SECONDARY node and in so making it the new PRIMARY.
 
   FAILOVER
-    A multi-node setup where the information is backed up onto SECONDARY nodes
-    and an automatic switch is performed if the PRIMARY node fails, upgrading
-    a SECONDARY node to PRIMARY and downgrading the PRIMARY to SECONDARY.
-    All nodes in both modes are active, running and processing zones.
+    A cluster setup identical to BACKUP in almost every aspect.
+    The only difference is that if the PRIMARY node fails, a automatic action is
+    taken to switch to a SECONDARY node and making it the new PRIMARY.
 
   BALANCE
-    A multi-node setup where the information is balanced over the nodes and is
-    backed up across additional nodes by a given ratio. The nodes mode has no
-    significance in this mode.
-    Nodes with backed up information are not actively processing the backed up
-    zone information.
-    Upon a node failure, the active zones on that node will become active on
-    one of the backed up nodes and then balanced out again to the configured
-    ratio.
+    A cluster setup with the recommendation of 3 or more nodes, if you only have
+    2 nodes then its better to pick BACKUP or FAILOVER mode, where the zone
+    information processing is balanced out over all nodes essentially creating
+    virtual FAILOVER sub-clusters per zone within the cluster.
+    This works by configuring a ratio of the total nodes to use for each zones
+    virtual sub-cluster.
+    If a node fails, all zones using that node as a PRIMARY will automatically
+    switch to one of their SECONDARY node and zones using it as a SECONDARY will
+    balance out across the available nodes and add a new SECONDARY.
 
 CLUSTER STATES
 
