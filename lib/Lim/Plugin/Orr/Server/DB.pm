@@ -265,7 +265,7 @@ our @__tables = (
 'CREATE TABLE hsms (
   hsm_uuid varchar(36) not null,
 
-  hsm_xml text not null,
+  hsm_data text not null,
 
   primary key (hsm_uuid)
 )',
@@ -278,7 +278,7 @@ our @__tables = (
 'CREATE TABLE policies (
   policy_uuid varchar(36) not null,
 
-  policy_xml text not null,
+  policy_data text not null,
 
   primary key (policy_uuid)
 )',
@@ -307,76 +307,86 @@ our @__data = (
     [ 'INSERT INTO version ( version ) VALUES ( ? )', $VERSION ],
     [ 'INSERT INTO hsms VALUES ( ?, ? )',
         __uuid,
-'<Repository name="SoftHSM">
-    <Module>/usr/lib/softhsm/libsofthsm.so</Module>
-    <TokenLabel>OpenDNSSEC</TokenLabel>
-    <PIN>1234</PIN>
-    <SkipPublicKey/>
-</Repository>'
+        JSON::XS->new->ascii->encode({
+            name => 'SoftHSM',
+            module => '/usr/lib/softhsm/libsofthsm.so',
+            token_label => 'OpenDNSSEC',
+            pin => '1234',
+            skip_public_key => 1
+        })
     ],
     [ 'INSERT INTO cluster_hsm SELECT cluster_uuid, hsm_uuid FROM clusters, hsms' ],
     [ 'INSERT INTO policies VALUES ( ?, ? )',
         __uuid,
-'<Policy name="orr-default">
-    <Description>The default policy for Orr</Description>
-    <Signatures>
-        <Resign>PT2H</Resign>
-        <Refresh>P3D</Refresh>
-        <Validity>
-            <Default>P7D</Default>
-            <Denial>P7D</Denial>
-        </Validity>
-        <Jitter>PT12H</Jitter>
-        <InceptionOffset>PT3600S</InceptionOffset>
-    </Signatures>
-    <Denial>
-        <NSEC3>
-            <Resalt>P100D</Resalt>
-            <Hash>
-                <Algorithm>1</Algorithm>
-                <Iterations>5</Iterations>
-                <Salt length="8" />
-            </Hash>
-        </NSEC3>
-    </Denial>
-    <Keys>
-        <TTL>PT3600S</TTL>
-        <RetireSafety>PT3600S</RetireSafety>
-        <PublishSafety>PT3600S</PublishSafety>
-        <Purge>P14D</Purge>
-        <KSK>
-            <Algorithm length="2048">8</Algorithm>
-            <Lifetime>P1Y</Lifetime>
-            <Repository>SoftHSM</Repository>
-            <ManualRollover />
-        </KSK>
-        <ZSK>
-            <Algorithm length="1024">8</Algorithm>
-            <Lifetime>P30D</Lifetime>
-            <Repository>SoftHSM</Repository>
-            <ManualRollover />
-        </ZSK>
-    </Keys>
-    <Zone>
-        <PropagationDelay>PT43200S</PropagationDelay>
-        <SOA>
-            <TTL>PT3600S</TTL>
-            <Minimum>PT3600S</Minimum>
-            <Serial>datecounter</Serial>
-        </SOA>
-    </Zone>
-    <Parent>
-        <PropagationDelay>PT9999S</PropagationDelay>
-        <DS>
-            <TTL>PT3600S</TTL>
-        </DS>
-        <SOA>
-            <TTL>PT172800S</TTL>
-            <Minimum>PT10800S</Minimum>
-        </SOA>
-    </Parent>
-    <Audit />
-</Policy>'
+        JSON::XS->new->ascii->encode({
+            name => 'orr-default',
+            description => 'The default policy for Orr',
+            signatures => {
+                resign => 'PT2H',
+                refresh => 'P3D',
+                validity => {
+                    default => 'P7D',
+                    denial => 'P7D'
+                },
+                jitter => 'PT12H',
+                inception_offset => 'PT3600S'
+            },
+            denial => {
+                nsec3 => {
+                    resalt => 'P100D',
+                    hash => {
+                        algorithm => 1,
+                        iterations => 5,
+                        salt => {
+                            length => 8
+                        }
+                    }
+                }
+            },
+            keys => {
+                ttl => 'PT3600S',
+                retire_safety => 'PT3600S',
+                publish_safety => 'PT3600S',
+                purge => 'P14D',
+                ksk => {
+                    algorithm => {
+                        value => 8,
+                        length => 2048
+                    },
+                    lifetime => 'P1Y',
+                    repository => 'SoftHSM',
+                    manual_rollover => 1
+                },
+                zsk => {
+                    algorithm => {
+                        value => 8,
+                        length => 1024
+                    },
+                    lifetime => 'P1Y',
+                    repository => 'SoftHSM',
+                    manual_rollover => 1
+                }
+            },
+            zone => {
+                propagation_delay => 'PT43200S',
+                soa => {
+                    ttl => 'PT3600S',
+                    minimum => 'PT3600S',
+                    serial => 'datacounter'
+                }
+            },
+            parent => {
+                propagation_delay => 'PT9999S',
+                ds => {
+                    ttl => 'PT3600S'
+                },
+                soa => {
+                    ttl => 'PT172800S',
+                    minimum => 'PT10800S'
+                }
+            },
+            audit => 1
+        })
     ],
     [ 'INSERT INTO cluster_policy SELECT cluster_uuid, policy_uuid FROM clusters, policies' ],
 );
@@ -784,12 +794,12 @@ Object example in the array:
     mode => 'string',
     policy => {
         uuid => 'string',
-        xml => 'string'
+        data => 'string'
     },
     hsms => [
         {
             uuid => 'string',
-            xml => 'string'
+            data => 'string'
         }
     ],
     nodes => [
@@ -852,7 +862,7 @@ sub ClusterConfig {
                 }
             } @$rows;
             
-            $dbh->execute('SELECT cp.cluster_uuid, p.policy_uuid, p.policy_xml
+            $dbh->execute('SELECT cp.cluster_uuid, p.policy_uuid, p.policy_data
                 FROM cluster_policy cp
                 INNER JOIN policies p ON p.policy_uuid = cp.policy_uuid', sub
             {
@@ -875,11 +885,11 @@ sub ClusterConfig {
                     
                     $cluster{$_->[0]}->{policy} = {
                         uuid => $_->[1],
-                        xml => $_->[2]
+                        data => $_->[2]
                     };
                 }
 
-                $dbh->execute('SELECT ch.cluster_uuid, h.hsm_uuid, h.hsm_xml
+                $dbh->execute('SELECT ch.cluster_uuid, h.hsm_uuid, h.hsm_data
                     FROM cluster_hsm ch
                     INNER JOIN hsms h ON h.hsm_uuid = ch.hsm_uuid', sub
                 {
@@ -902,7 +912,7 @@ sub ClusterConfig {
                         
                         push(@{$cluster{$_->[0]}->{hsms}}, {
                             uuid => $_->[1],
-                            xml => $_->[2]
+                            data => $_->[2]
                         });
                     }
     
