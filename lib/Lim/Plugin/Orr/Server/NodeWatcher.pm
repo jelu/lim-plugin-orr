@@ -110,8 +110,7 @@ sub new {
     my %args = ( @_ );
     my $self = {
         logger => Log::Log4perl->get_logger,
-        node => {},
-        
+        node => {}
     };
     bless $self, $class;
 
@@ -133,7 +132,7 @@ sub DESTROY {
 sub Timer {
     my ($self, $after) = @_;
     weaken($self);
-
+    
     $self->{timer} = AnyEvent->timer(
         after => defined $after ? $after : $TIMER_INTERVAL,
         cb => sub {
@@ -172,15 +171,6 @@ sub Run {
         }
         
         #
-        # Remove node if its scheduled to be removed
-        #
-        if ($node->{remove}) {
-            Lim::DEBUG and $self->{logger}->debug('Removed node ', $node->{uuid});
-            delete $self->{node}->{$node->{uuid}};
-            next;
-        }
-        
-        #
         # Ping the node if its offline or if its time to ping it again to check
         # that it is alive
         #
@@ -214,6 +204,47 @@ sub Run {
                 }
                 $node->{lock} = 0;
             });
+            next;
+        }
+        
+        #
+        # Process Node work queue
+        #
+        if (defined (my $work = shift(@{$node->{queue}}))) {
+            unless (ref($work) eq 'ARRAY') {
+                confess __PACKAGE__, ': Node work not ARRAY';
+            }
+            
+            my $what = shift(@$work);
+            unless ($node->{node}->can($what)) {
+                confess __PACKAGE__, ': Node work '.$what.' can not be done';
+            }
+            
+            my $cb = shift(@$work);
+            unless (ref($cb) eq 'CODE') {
+                confess __PACKAGE__, ': Node work cb invalid';
+            }
+            
+            if ($node->{state} == NODE_STATE_ONLINE or $node->{state} == NODE_STATE_STANDBY) {
+                Lim::DEBUG and $self->{logger}->debug('Node ', $node->{uuid}, ' working on ', $what);
+                $node->{lock} = 1;
+                $node->{node}->$what(sub {
+                    $cb->(@_);
+                    $node->{lock} = 0;
+                }, @$work);
+                next;
+            }
+            else {
+                $cb->();
+            }
+        }
+
+        #
+        # Remove node if its scheduled to be removed
+        #
+        if ($node->{remove}) {
+            Lim::DEBUG and $self->{logger}->debug('Removed node ', $node->{uuid});
+            delete $self->{node}->{$node->{uuid}};
             next;
         }
     }
@@ -261,7 +292,8 @@ sub Add {
         state => NODE_STATE_UNKNOWN,
         node => $node,
         remove => 0,
-        cache => {}
+        cache => {},
+        queue => []
     };
     
     return 1;
@@ -307,18 +339,21 @@ sub Versions {
             next;
         }
         
-        $node->{node}->Versions(sub {
+        push(@{$node->{queue}}, ['Versions', sub {
             my ($version) = @_;
             
             if (ref($version) eq 'HASH') {
                 $node->{cache}->{versions} = $result->{$uuid} = $version;
+            }
+            else {
+                $result->{$uuid} = undef;
             }
             $nodes--;
             
             unless ($nodes) {
                 $cb->($result);
             }
-        });
+        }]);
         $nodes++;
     }
     
