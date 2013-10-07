@@ -150,8 +150,8 @@ sub new {
     unless (defined $args{policy}->{uuid}) {
         confess __PACKAGE__, ': Missing policy->uuid';
     }
-    unless (defined $args{policy}->{xml}) {
-        confess __PACKAGE__, ': Missing policy->xml';
+    unless (defined $args{policy}->{data}) {
+        confess __PACKAGE__, ': Missing policy->data';
     }
     # TODO validate XML
     $self->{policy} = $args{policy};
@@ -164,7 +164,7 @@ sub new {
             confess __PACKAGE__, ': hsm item is not an hash ref';
         }
 
-        foreach my $k (qw(uuid xml)) {
+        foreach my $k (qw(uuid data)) {
             unless (exists $_->{$k}) {
                 confess __PACKAGE__, ': Missing ', $k, ' in hsm item';
             }
