@@ -367,13 +367,51 @@ sub Versions {
 =cut
 
 sub SetupHSM {
-    my ($self, $xml, $cb) = @_;
+    my ($self, $cb, $data) = @_;
     
     unless (ref($cb) eq 'CODE') {
         confess __PACKAGE__, ': Missing cb or is not CODE';
     }
+    unless (ref($data) eq 'HASH') {
+        confess __PACKAGE__, ': Missing data or is not HASH';
+    }
     
-    # TODO
+    my $result = {};
+    my $nodes = 0;
+    foreach my $node (values %{$self->{node}}) {
+        my $uuid = $node->{uuid};
+
+        unless ($node->{state} == NODE_STATE_ONLINE or $node->{state} == NODE_STATE_STANDBY) {
+            $result->{$uuid} = undef;
+            next;
+        }
+        
+        if (exists $node->{cache}->{hsm_setup}) {
+            $result->{$uuid} = 1;
+            next;
+        }
+        
+        push(@{$node->{queue}}, ['SetupHSM', sub {
+            my ($successful) = @_;
+            
+            if ($successful) {
+                $node->{cache}->{hsm_setup} = $result->{$uuid} = 1;
+            }
+            else {
+                $result->{$uuid} = undef;
+            }
+            $nodes--;
+            
+            unless ($nodes) {
+                $cb->($result);
+            }
+        }, $data]);
+        $nodes++;
+    }
+    
+    unless ($nodes) {
+        $cb->($result);
+    }
 }
 
 =item SetupPolicy

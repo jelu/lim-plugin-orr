@@ -264,6 +264,24 @@ sub Versions {
     });
 }
 
+=item SetupHSM
+
+=cut
+
+sub SetupHSM {
+    my ($self, $cb, $data) = @_;
+    weaken($self);
+
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+    unless (ref($data) eq 'HASH') {
+        confess '$data is not HASH';
+    }
+
+    $cb->();
+}
+
 =back
 
 =head1 AUTHOR

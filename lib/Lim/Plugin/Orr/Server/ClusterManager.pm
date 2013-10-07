@@ -340,62 +340,68 @@ sub Run {
                 return;
             }
             
-            if (ref($result) eq 'HASH') {
-                foreach my $node_uuid (keys %$result) {
-                    unless (ref($result->{$node_uuid}) eq 'HASH') {
+            unless (ref($result) eq 'HASH') {
+                $self->{state} = CLUSTER_STATE_FAILURE;
+                $self->{state_message} = 'Unable to retrieve versions of software running, result set returned is invalid.';
+                $self->{cache} = {};
+                $self->{lock} = 0;
+                Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
+                return;
+            }
+            
+            foreach my $node_uuid (keys %$result) {
+                unless (ref($result->{$node_uuid}) eq 'HASH') {
+                    $self->{state} = CLUSTER_STATE_FAILURE;
+                    $self->{state_message} = 'Unable to retrieve versions of software running on node '.$node_uuid.': no versions returned';
+                    $self->{cache} = {};
+                    $self->{lock} = 0;
+                    Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
+                    return;
+                }
+                my $node = $result->{$node_uuid};
+                
+                foreach my $what (qw(plugin program)) {
+                    unless (exists $node->{$what} and ref($node->{$what}) eq 'HASH') {
                         $self->{state} = CLUSTER_STATE_FAILURE;
-                        $self->{state_message} = 'Unable to retrieve versions of software running on node '.$node_uuid.': no versions returned';
+                        $self->{state_message} = 'Unable to retrieve versions of software running on node '.$node_uuid.': structure for '.$what.' is invalid';
                         $self->{cache} = {};
                         $self->{lock} = 0;
                         Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
                         return;
                     }
-                    my $node = $result->{$node_uuid};
                     
-                    foreach my $what (qw(plugin program)) {
-                        unless (exists $node->{$what} and ref($node->{$what}) eq 'HASH') {
-                            $self->{state} = CLUSTER_STATE_FAILURE;
-                            $self->{state_message} = 'Unable to retrieve versions of software running on node '.$node_uuid.': structure for '.$what.' is invalid';
-                            $self->{cache} = {};
-                            $self->{lock} = 0;
-                            Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
-                            return;
-                        }
-                        
-                        foreach my $entry (keys %{$SOFTWARE_VERSION->{$what}}) {
-                            unless (exists $node->{$what}->{$entry}) {
-                                if ($SOFTWARE_VERSION->{$what}->{$entry}->{required}) {
-                                    $self->{state} = CLUSTER_STATE_FAILURE;
-                                    $self->{state_message} = 'Missing required software '.$entry.' for node '.$node_uuid;
-                                    $self->{cache} = {};
-                                    $self->{lock} = 0;
-                                    Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
-                                    return;
-                                }
-                                next;
-                            }
-                            
-                            if (($SOFTWARE_VERSION->{$what}->{$entry}->{min} gt
-                                 $node->{$what}->{$entry}) or
-                                ($SOFTWARE_VERSION->{$what}->{$entry}->{max} lt
-                                 $node->{$what}->{$entry}))
-                            {
+                    foreach my $entry (keys %{$SOFTWARE_VERSION->{$what}}) {
+                        unless (exists $node->{$what}->{$entry}) {
+                            if ($SOFTWARE_VERSION->{$what}->{$entry}->{required}) {
                                 $self->{state} = CLUSTER_STATE_FAILURE;
-                                $self->{state_message} = 'Software '.$entry.' version '.$node->{$what}->{$entry}.' on node '.$node_uuid.' is not supported. Supported are minimum version '.$SOFTWARE_VERSION->{$what}->{$entry}->{min}.' and maximum version '.$SOFTWARE_VERSION->{$what}->{$entry}->{max};
+                                $self->{state_message} = 'Missing required software '.$entry.' for node '.$node_uuid;
                                 $self->{cache} = {};
                                 $self->{lock} = 0;
                                 Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
                                 return;
                             }
+                            next;
+                        }
+                        
+                        if (($SOFTWARE_VERSION->{$what}->{$entry}->{min} gt
+                             $node->{$what}->{$entry}) or
+                            ($SOFTWARE_VERSION->{$what}->{$entry}->{max} lt
+                             $node->{$what}->{$entry}))
+                        {
+                            $self->{state} = CLUSTER_STATE_FAILURE;
+                            $self->{state_message} = 'Software '.$entry.' version '.$node->{$what}->{$entry}.' on node '.$node_uuid.' is not supported. Supported are minimum version '.$SOFTWARE_VERSION->{$what}->{$entry}->{min}.' and maximum version '.$SOFTWARE_VERSION->{$what}->{$entry}->{max};
+                            $self->{cache} = {};
+                            $self->{lock} = 0;
+                            Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
+                            return;
                         }
                     }
                 }
-                
-                Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Version information correct and supported');
-                $self->{cache}->{version} = $result;
-                $self->Timer(0);
             }
             
+            Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Version information correct and supported');
+            $self->{cache}->{version} = $result;
+            $self->Timer(0);
             $self->{lock} = 0;
         });
         $self->Timer;
@@ -419,7 +425,7 @@ sub Run {
             next;
 
             $self->{lock} = 1;
-            $self->{node_watcher}->SetupHSM($hsm->{xml}, sub {
+            $self->{node_watcher}->SetupHSM(sub {
                 my ($result) = @_;
                 
                 unless (defined $self) {
@@ -429,7 +435,7 @@ sub Run {
                 # TODO
                 
                 $self->{lock} = 0;
-            });
+            }, $hsm->{data});
             $self->Timer;
             return;
         }
