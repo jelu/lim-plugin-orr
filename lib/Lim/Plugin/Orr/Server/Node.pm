@@ -58,7 +58,9 @@ sub new {
     my %args = ( @_ );
     my $self = {
         logger => Log::Log4perl->get_logger,
-        last_call => 0
+        last_call => 0,
+        queue => [],
+        lock => 0
     };
     bless $self, $class;
 
@@ -83,6 +85,67 @@ sub DESTROY {
     Lim::OBJ_DEBUG and $self->{logger}->debug('destroy ', __PACKAGE__, ' ', $self);
 }
 
+sub Timer {
+    my ($self, $after) = @_;
+
+    if (exists $self->{timer}) {
+        return;
+    }
+    
+    weaken($self);
+    my $w; $w = $self->{timer} = AnyEvent->timer(
+        after => defined $after ? $after : 0,
+        cb => sub {
+            if (defined $self) {
+                delete $self->{timer};
+                $self->Run;
+            }
+            undef $w;
+        });
+}
+
+sub LockOrQueue {
+    my $self = shift;
+
+    if ($self->{lock}) {
+        push(@{$self->{queue}}, [@_]);
+        $self->Timer;
+        return 0;
+    }
+    $self->{lock} = 1;
+    
+    return 1;
+}
+
+sub Unlock {
+    my ($self) = @_;
+    
+    unless ($self->{lock}) {
+        confess 'Node is not locked';
+    }
+    
+    $self->{lock} = 0;
+    
+    unless (exists $self->{timer}) {
+        $self->Run;
+    }
+}
+
+sub Run {
+    my ($self) = @_;
+    
+    unless (scalar @{$self->{queue}}) {
+        return;
+    }
+    
+    if ($self->{lock}) {
+        $self->Timer(1);
+        return;
+    }
+
+    # do work
+}
+
 =item Ping
 
 =cut
@@ -93,6 +156,10 @@ sub Ping {
 
     unless (ref($cb) eq 'CODE') {
         confess '$cb is not CODE';
+    }
+
+    unless ($self->LockOrQueue('Ping', $cb)) {
+        return;
     }
     
     my $agent = Lim::Agent->Client;
@@ -111,6 +178,7 @@ sub Ping {
         else {
             $cb->();
         }
+        $self->Unlock;
         undef $agent;
     }, {
         host => $self->{host},
@@ -138,6 +206,10 @@ sub Versions {
         confess '$cb is not CODE';
     }
     
+    unless ($self->LockOrQueue('Versions', $cb)) {
+        return;
+    }
+
     my $result = {};
     my $agent = Lim::Agent->Client;
     $agent->ReadPlugins(sub {
@@ -277,6 +349,10 @@ sub SetupHSM {
     }
     unless (ref($data) eq 'HASH') {
         confess '$data is not HASH';
+    }
+
+    unless ($self->LockOrQueue('SetupHSM', $cb, $data)) {
+        return;
     }
 
     $cb->();
