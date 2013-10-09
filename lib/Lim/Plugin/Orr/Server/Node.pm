@@ -85,6 +85,10 @@ sub DESTROY {
     Lim::OBJ_DEBUG and $self->{logger}->debug('destroy ', __PACKAGE__, ' ', $self);
 }
 
+=item Timer
+
+=cut
+
 sub Timer {
     my ($self, $after) = @_;
 
@@ -104,6 +108,10 @@ sub Timer {
         });
 }
 
+=item LockOrQueue
+
+=cut
+
 sub LockOrQueue {
     my $self = shift;
 
@@ -118,6 +126,10 @@ sub LockOrQueue {
     return 1;
 }
 
+=item Unlock
+
+=cut
+
 sub Unlock {
     my ($self) = @_;
     
@@ -126,11 +138,12 @@ sub Unlock {
     }
     
     $self->{lock} = 0;
-    
-    unless (exists $self->{timer}) {
-        $self->Run;
-    }
+    $self->Run;
 }
+
+=item Run
+
+=cut
 
 sub Run {
     my ($self) = @_;
@@ -157,6 +170,10 @@ sub Run {
     Lim::DEBUG and $self->{logger}->debug('Poping work ', $what);
     $self->$what(@$work);
 }
+
+=item Stop
+
+=cut
 
 sub Stop {
     my ($self) = @_;
