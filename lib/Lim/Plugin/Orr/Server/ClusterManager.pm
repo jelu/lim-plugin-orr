@@ -422,7 +422,6 @@ sub Run {
             }
 
             Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Setting up HSM ', $hsm->{uuid});
-            next;
 
             $self->{lock} = 1;
             $self->{node_watcher}->SetupHSM(sub {
@@ -432,7 +431,9 @@ sub Run {
                     return;
                 }
                 
-                # TODO
+                # TODO validate result
+                
+                $self->{cache}->{hsm_setup}->{$hsm} = $result;
                 
                 $self->{lock} = 0;
             }, $hsm->{data});

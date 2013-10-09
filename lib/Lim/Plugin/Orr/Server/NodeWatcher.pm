@@ -375,8 +375,8 @@ sub SetupHSM {
     unless (ref($cb) eq 'CODE') {
         confess __PACKAGE__, ': Missing cb or is not CODE';
     }
-    unless (ref($data) eq 'HASH') {
-        confess __PACKAGE__, ': Missing data or is not HASH';
+    unless (defined $data) {
+        confess __PACKAGE__, ': Missing data';
     }
     
     my $result = {};

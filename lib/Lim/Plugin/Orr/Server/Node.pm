@@ -382,21 +382,78 @@ sub Versions {
 
 sub SetupHSM {
     my ($self, $cb, $data) = @_;
+    my $json = JSON::XS->new->ascii->canonical;
     weaken($self);
 
     unless (ref($cb) eq 'CODE') {
         confess '$cb is not CODE';
     }
+    eval {
+        $data = $json->decode($data);
+    };
+    if ($@) {
+        confess 'unable to decode HSM json data: '.$@;
+    }
     unless (ref($data) eq 'HASH') {
-        confess '$data is not HASH';
+        confess 'HSM json data is not HASH';
     }
 
     unless ($self->LockOrQueue('SetupHSM', $cb, $data)) {
         return;
     }
 
-    $cb->();
-    $self->Unlock;
+    my $opendnssec = Lim::Plugin::OpenDNSSEC->Client;
+    $opendnssec->ReadRepository({
+        repository => {
+            name => $data->{name}
+        }
+    }, sub {
+        my ($call, $response) = @_;
+        
+        unless (defined $self) {
+            undef $opendnssec;
+            return;
+        }
+        
+        if ($call->Successful) {
+            $self->{last_call} = time;
+            
+            if (exists $response->{repository}) {
+                my $repository = ref($response->{repository}) eq 'ARRAY' ? $response->{repository}->[0] : $response->{repository};
+                
+                my $same = 0;
+                eval {
+                    $same = $json->encode($response->{repository}) eq $json->encode($data) ? 1 : 0;
+                };
+                if ($@) {
+                    Lim::ERR and $self->{logger}->error('Unable to compare HSM data, JSON error: ', $@);
+                    $cb->();
+                }
+                elsif (!$same) {
+                    Lim::DEBUG and $self->{logger}->debug('Repository ', $data->{name}, ' needs updating');
+                    
+                    # TODO update HSM
+                }
+                
+                $cb->(1);
+            }
+            else {
+                Lim::DEBUG and $self->{logger}->debug('Repository ', $data->{name}, ' not found, creating');
+                
+                # TODO create HSM
+                
+                $cb->(1);
+            }
+        }
+        else {
+            $cb->();
+        }
+        $self->Unlock;
+        undef $opendnssec;
+    }, {
+        host => $self->{host},
+        port => $self->{port}
+    });
 }
 
 =back
