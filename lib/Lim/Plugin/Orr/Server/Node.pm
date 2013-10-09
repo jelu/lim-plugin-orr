@@ -108,7 +108,7 @@ sub LockOrQueue {
     my $self = shift;
 
     if ($self->{lock}) {
-        Lim::DEBUG and $self->{logger}->debug('Queue work ', $_->[0]);
+        Lim::DEBUG and $self->{logger}->debug('Queue work ', $_[0]);
         push(@{$self->{queue}}, [@_]);
         $self->Timer;
         return 0;
@@ -156,6 +156,12 @@ sub Run {
     
     Lim::DEBUG and $self->{logger}->debug('Poping work ', $what);
     $self->$what(@$work);
+}
+
+sub Stop {
+    my ($self) = @_;
+    
+    $self->{queue} = [];
 }
 
 =item Ping

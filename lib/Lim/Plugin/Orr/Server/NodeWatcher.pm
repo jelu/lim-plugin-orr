@@ -123,6 +123,9 @@ sub DESTROY {
     Lim::OBJ_DEBUG and $self->{logger}->debug('destroy ', __PACKAGE__, ' ', $self);
     
     $self->Stop;
+    foreach my $node (values %{$self->{node}}) {
+        $node->{node}->Stop;
+    }
 }
 
 =item Timer
