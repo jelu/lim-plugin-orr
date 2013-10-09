@@ -159,7 +159,7 @@ sub Stop {
 sub Run {
     my ($self) = @_;
     weaken($self);
-    
+
     $self->{logger}->debug('Run() start');
     foreach my $node (values %{$self->{node}}) {
         #

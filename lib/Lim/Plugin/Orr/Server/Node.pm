@@ -108,6 +108,7 @@ sub LockOrQueue {
     my $self = shift;
 
     if ($self->{lock}) {
+        Lim::DEBUG and $self->{logger}->debug('Queue work ', $_->[0]);
         push(@{$self->{queue}}, [@_]);
         $self->Timer;
         return 0;
@@ -143,7 +144,18 @@ sub Run {
         return;
     }
 
-    # do work
+    my $work = shift(@{$self->{queue}});
+    unless (ref($work) eq 'ARRAY' and scalar @$work) {
+        confess 'Work in queue is invalid';
+    }
+
+    my $what = shift(@$work);
+    unless ($self->can($what)) {
+        confess 'Work in queue is invalid';
+    }
+    
+    Lim::DEBUG and $self->{logger}->debug('Poping work ', $what);
+    $self->$what(@$work);
 }
 
 =item Ping
@@ -276,6 +288,7 @@ sub Versions {
                                 else {
                                     $cb->();
                                 }
+                                $self->Unlock;
                                 undef $opendnssec;
                             }, {
                                 host => $self->{host},
@@ -284,10 +297,12 @@ sub Versions {
                         }
                         else {
                             $cb->($result);
+                            $self->Unlock;
                         }
                     }
                     else {
                         $cb->();
+                        $self->Unlock;
                     }
                     undef $softhsm;
                 }, {
@@ -319,6 +334,7 @@ sub Versions {
                     else {
                         $cb->();
                     }
+                    $self->Unlock;
                     undef $opendnssec;
                 }, {
                     host => $self->{host},
@@ -328,6 +344,7 @@ sub Versions {
         }
         else {
             $cb->();
+            $self->Unlock;
         }
         undef $agent;
     }, {
@@ -356,6 +373,7 @@ sub SetupHSM {
     }
 
     $cb->();
+    $self->Unlock;
 }
 
 =back

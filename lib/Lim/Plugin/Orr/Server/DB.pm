@@ -298,8 +298,8 @@ sub __uuid {
 }
 
 our @__data = (
-    [ 'INSERT INTO nodes ( node_uuid, node_uri, node_mode ) VALUES ( ?, ?, ? )', __uuid, 'http://172.16.21.91:5353', 'PRIMARY' ],
-    [ 'INSERT INTO nodes ( node_uuid, node_uri, node_mode ) VALUES ( ?, ?, ? )', __uuid, 'http://172.16.21.92:5353', 'SECONDARY' ],
+    [ 'INSERT INTO nodes ( node_uuid, node_uri, node_mode ) VALUES ( ?, ?, ? )', __uuid, 'http://blim:5353', 'PRIMARY' ],
+    [ 'INSERT INTO nodes ( node_uuid, node_uri, node_mode ) VALUES ( ?, ?, ? )', __uuid, 'http://clim:5353', 'SECONDARY' ],
     [ 'INSERT INTO zones ( zone_uuid, zone_name, zone_input_type, zone_input_data ) VALUES ( ?, ?, "Lim::Plugin::DNS", ? )', __uuid, 'example.com', JSON::XS->new->ascii->encode({host => '172.16.21.90', port => 5353, software => 'BIND'}) ],
     [ 'INSERT INTO clusters ( cluster_uuid, cluster_mode ) VALUES ( ?, ? )', __uuid, 'BACKUP' ],
     [ 'INSERT INTO cluster_node SELECT cluster_uuid, node_uuid FROM clusters, nodes' ],
