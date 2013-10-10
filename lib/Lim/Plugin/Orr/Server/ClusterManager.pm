@@ -133,7 +133,8 @@ sub new {
         lock => 0,
         state => CLUSTER_STATE_INITIALIZING,
         state_message => undef,
-        cache => {}
+        cache => {},
+        log => []
     };
     bless $self, $class;
 
@@ -331,7 +332,7 @@ sub Run {
     # Verify Node versions
     #
     unless (exists $self->{cache}->{version}) {
-        Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Fetching version information from nodes');
+        $self->Log('Fetching version information from nodes');
         $self->{lock} = 1;
         $self->{node_watcher}->Versions(sub {
             my ($result) = @_;
@@ -341,43 +342,31 @@ sub Run {
             }
             
             unless (ref($result) eq 'HASH') {
-                $self->{state} = CLUSTER_STATE_FAILURE;
-                $self->{state_message} = 'Unable to retrieve versions of software running, result set returned is invalid.';
-                $self->{cache} = {};
+                $self->State(CLUSTER_STATE_FAILURE, 'Unable to retrieve versions of software running, result set returned is invalid.');
                 $self->{lock} = 0;
-                Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
                 return;
             }
             
             foreach my $node_uuid (keys %$result) {
                 unless (ref($result->{$node_uuid}) eq 'HASH') {
-                    $self->{state} = CLUSTER_STATE_FAILURE;
-                    $self->{state_message} = 'Unable to retrieve versions of software running on node '.$node_uuid.': no versions returned';
-                    $self->{cache} = {};
+                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to retrieve versions of software running on node ', $node_uuid, ': no versions returned');
                     $self->{lock} = 0;
-                    Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
                     return;
                 }
                 my $node = $result->{$node_uuid};
                 
                 foreach my $what (qw(plugin program)) {
                     unless (exists $node->{$what} and ref($node->{$what}) eq 'HASH') {
-                        $self->{state} = CLUSTER_STATE_FAILURE;
-                        $self->{state_message} = 'Unable to retrieve versions of software running on node '.$node_uuid.': structure for '.$what.' is invalid';
-                        $self->{cache} = {};
+                        $self->State(CLUSTER_STATE_FAILURE, 'Unable to retrieve versions of software running on node ', $node_uuid, ': structure for ', $what, ' is invalid');
                         $self->{lock} = 0;
-                        Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
                         return;
                     }
                     
                     foreach my $entry (keys %{$SOFTWARE_VERSION->{$what}}) {
                         unless (exists $node->{$what}->{$entry}) {
                             if ($SOFTWARE_VERSION->{$what}->{$entry}->{required}) {
-                                $self->{state} = CLUSTER_STATE_FAILURE;
-                                $self->{state_message} = 'Missing required software '.$entry.' for node '.$node_uuid;
-                                $self->{cache} = {};
+                                $self->State(CLUSTER_STATE_FAILURE, 'Missing required software ', $entry, ' for node ', $node_uuid);
                                 $self->{lock} = 0;
-                                Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
                                 return;
                             }
                             next;
@@ -388,18 +377,17 @@ sub Run {
                             ($SOFTWARE_VERSION->{$what}->{$entry}->{max} lt
                              $node->{$what}->{$entry}))
                         {
-                            $self->{state} = CLUSTER_STATE_FAILURE;
-                            $self->{state_message} = 'Software '.$entry.' version '.$node->{$what}->{$entry}.' on node '.$node_uuid.' is not supported. Supported are minimum version '.$SOFTWARE_VERSION->{$what}->{$entry}->{min}.' and maximum version '.$SOFTWARE_VERSION->{$what}->{$entry}->{max};
-                            $self->{cache} = {};
+                            $self->State(CLUSTER_STATE_FAILURE, 'Software ', $entry, ' version ', $node->{$what}->{$entry}, ' on node ', $node_uuid,
+                                ' is not supported. Supported are minimum version ', $SOFTWARE_VERSION->{$what}->{$entry}->{min},
+                                ' and maximum version ', $SOFTWARE_VERSION->{$what}->{$entry}->{max});
                             $self->{lock} = 0;
-                            Lim::WARN and $self->{logger}->warn($self->{uuid}, ': FAILURE: ', $self->{state_message});
                             return;
                         }
                     }
                 }
             }
             
-            Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Version information correct and supported');
+            $self->Log('Version information correct and supported');
             $self->{cache}->{version} = $result;
             $self->Timer(0);
             $self->{lock} = 0;
@@ -431,18 +419,44 @@ sub Run {
                     return;
                 }
                 
-                # TODO validate result
-                
                 $self->{cache}->{hsm_setup}->{$hsm} = $result;
-                
                 $self->{lock} = 0;
             }, $hsm->{data});
             $self->Timer;
             return;
         }
+
+        my $hsm_error;
+        foreach my $hsm (@{$self->{hsms}}) {
+            my $result = $self->{cache}->{hsm_setup}->{$hsm};
+            
+            unless (ref($result) eq 'HASH') {
+                $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup HSMs, result set returned is invalid.');
+                $hsm_error = 1;
+                next;
+            }
+            
+            foreach my $node_uuid (keys %$result) {
+                unless (defined $result->{$node_uuid}) {
+                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup HSMs on node ', $node_uuid);
+                    $hsm_error = 1;
+                    next;
+                }
+                
+                if ($result->{$node_uuid}) {
+                    $self->{cache}->{hsms_setup} = 1;
+                }
+            }
+        }
+        if ($hsm_error) {
+            $self->{lock} = 0;
+            return;
+        }
         
-        Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': All HSMs setup');
-        $self->{cache}->{hsms_setup} = 1;
+        $self->Log('All HSMs setup');
+        unless (exists $self->{cache}->{hsms_setup}) {
+            $self->{cache}->{hsms_setup} = 0;
+        }
     }
     
     #
@@ -522,6 +536,65 @@ sub Run {
     $self->{logger}->debug($self->{uuid}, ': Run() done');
 
     $self->Timer;
+}
+
+=item Log
+
+=cut
+
+sub Log {
+    my $self = shift;
+    my $log = join('', @_);
+    
+    Lim::INFO and $self->{logger}->info($self->{uuid}, ': ', $log);
+    push(@{$self->{log}}, $log);
+}
+
+=item State
+
+=cut
+
+sub State {
+    my $self = shift;
+    my $state = shift;
+    
+    if ($state == CLUSTER_STATE_INITIALIZING) {
+        if ($self->{state} == CLUSTER_STATE_FAILURE) {
+            $self->Log('(State INITIALIZING) ', @_);
+        }
+        else {
+            $self->Log('State INITIALIZING: ', @_);
+        }
+    }
+    elsif ($state == CLUSTER_STATE_OPERATIONAL) {
+        if ($self->{state} == CLUSTER_STATE_FAILURE) {
+            $self->Log('(State OPERATIONAL) ', @_);
+        }
+        else {
+            $self->Log('State OPERATIONAL: ', @_);
+        }
+    }
+    elsif ($state == CLUSTER_STATE_DEGRADED) {
+        if ($self->{state} == CLUSTER_STATE_FAILURE) {
+            $self->Log('(State DEGRADED) ', @_);
+        }
+        else {
+            $self->Log('State DEGRADED: ', @_);
+        }
+    }
+    elsif ($state == CLUSTER_STATE_FAILURE) {
+        $self->Log('State FAILURE: ', @_);
+        $self->{cache} = {};
+    }
+    elsif ($state == CLUSTER_STATE_DISABLED) {
+        $self->Log('State DISABLED: ', @_);
+        $self->{cache} = {};
+    }
+    else {
+        confess __PACKAGE__, ': Unable to change state to ', $state, ': Invalid state';
+    }
+    
+    $self->{state} = $state;
 }
 
 =back
