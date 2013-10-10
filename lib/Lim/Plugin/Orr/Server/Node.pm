@@ -208,9 +208,11 @@ sub Ping {
         
         if ($call->Successful) {
             $self->{last_call} = time;
+            undef $@;
             $cb->(1);
         }
         else {
+            $@ = $call->Error;
             $cb->();
         }
         $self->Unlock;
@@ -306,9 +308,11 @@ sub Versions {
                                         }
                                     }
             
+                                    undef $@;
                                     $cb->($result);
                                 }
                                 else {
+                                    $@ = $call->Error;
                                     $cb->();
                                 }
                                 $self->Unlock;
@@ -319,11 +323,13 @@ sub Versions {
                             });
                         }
                         else {
+                            undef $@;
                             $cb->($result);
                             $self->Unlock;
                         }
                     }
                     else {
+                        $@ = $call->Error;
                         $cb->();
                         $self->Unlock;
                     }
@@ -352,9 +358,11 @@ sub Versions {
                             }
                         }
 
+                        undef $@;
                         $cb->($result);
                     }
                     else {
+                        $@ = $call->Error;
                         $cb->();
                     }
                     $self->Unlock;
@@ -366,6 +374,7 @@ sub Versions {
             }
         }
         else {
+            $@ = $call->Error;
             $cb->();
             $self->Unlock;
         }
@@ -431,21 +440,72 @@ sub SetupHSM {
                 }
                 elsif (!$same) {
                     Lim::DEBUG and $self->{logger}->debug('Repository ', $data->{name}, ' needs updating');
-                    
-                    # TODO update HSM
+                    $opendnssec->UpdateRepository({
+                        repository => $data
+                    }, sub {
+                        my ($call, $response) = @_;
+                        
+                        unless (defined $self) {
+                            undef $opendnssec;
+                            return;
+                        }
+                        
+                        if ($call->Successful) {
+                            $self->{last_call} = time;
+                            Lim::DEBUG and $self->{logger}->debug('Repository ', $data->{name}, ' updated');
+                            undef $@;
+                            $cb->(1, 1);
+                        }
+                        else {
+                            $@ = $call->Error;
+                            $cb->();
+                        }
+                        $self->Unlock;
+                        undef $opendnssec;
+                    }, {
+                        host => $self->{host},
+                        port => $self->{port}
+                    });
+                    return;
                 }
                 
+                Lim::DEBUG and $self->{logger}->debug('Repository ', $data->{name}, ' is up to date');
+                undef $@;
                 $cb->(1);
             }
             else {
                 Lim::DEBUG and $self->{logger}->debug('Repository ', $data->{name}, ' not found, creating');
-                
-                # TODO create HSM
-                
-                $cb->(1);
+                $opendnssec->CreateRepository({
+                    repository => $data
+                }, sub {
+                    my ($call, $response) = @_;
+                    
+                    unless (defined $self) {
+                        undef $opendnssec;
+                        return;
+                    }
+                    
+                    if ($call->Successful) {
+                        $self->{last_call} = time;
+                        Lim::DEBUG and $self->{logger}->debug('Repository ', $data->{name}, ' created');
+                        undef $@;
+                        $cb->(1, 1);
+                    }
+                    else {
+                        $@ = $call->Error;
+                        $cb->();
+                    }
+                    $self->Unlock;
+                    undef $opendnssec;
+                }, {
+                    host => $self->{host},
+                    port => $self->{port}
+                });
+                return;
             }
         }
         else {
+            $@ = $call->Error;
             $cb->();
         }
         $self->Unlock;
