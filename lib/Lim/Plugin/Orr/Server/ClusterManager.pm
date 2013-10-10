@@ -409,7 +409,7 @@ sub Run {
                 next;
             }
 
-            Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Setting up HSM ', $hsm->{uuid});
+            $self->Log('Setting up HSM ', $hsm->{uuid});
 
             $self->{lock} = 1;
             $self->{node_watcher}->SetupHSM(sub {
@@ -431,14 +431,14 @@ sub Run {
             my $result = $self->{cache}->{hsm_setup}->{$hsm};
             
             unless (ref($result) eq 'HASH') {
-                $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup HSMs, result set returned is invalid.');
+                $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup HSM ', $hsm->{uuid} ,', result set returned is invalid.');
                 $hsm_error = 1;
                 next;
             }
             
             foreach my $node_uuid (keys %$result) {
                 unless (defined $result->{$node_uuid}) {
-                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup HSMs on node ', $node_uuid);
+                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup HSM ',  $hsm->{uuid}, ' on node ', $node_uuid);
                     $hsm_error = 1;
                     next;
                 }
@@ -453,7 +453,7 @@ sub Run {
             return;
         }
         
-        $self->Log('All HSMs setup');
+        $self->Log('All HSMs setup ok');
         unless (exists $self->{cache}->{hsms_setup}) {
             $self->{cache}->{hsms_setup} = 0;
         }
@@ -462,6 +462,45 @@ sub Run {
     #
     # Configure/Initiate/Verify Policy
     #
+    unless (exists $self->{cache}->{policy_setup}) {
+        $self->Log('Setting up Policy ', $self->{policy}->{uuid});
+
+        $self->{lock} = 1;
+        $self->{node_watcher}->SetupPolicy(sub {
+            my ($result) = @_;
+            
+            unless (defined $self) {
+                return;
+            }
+            
+            unless (ref($result) eq 'HASH') {
+                $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup Policy ',  $self->{policy}->{uuid}, ', result set returned is invalid.');
+                $hsm_error = 1;
+                next;
+            }
+            
+            my $policy_error;
+            foreach my $node_uuid (keys %$result) {
+                unless (defined $result->{$node_uuid}) {
+                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup Policy ', $self->{policy}->{uuid}, ' on node ', $node_uuid);
+                    $policy_error = 1;
+                    next;
+                }
+                
+                if ($result->{$node_uuid}) {
+                    $self->{cache}->{policy_setup} = 1;
+                }
+            }
+
+            $self->Log('Policy setup ok');
+            unless (exists $self->{cache}->{policy_setup}) {
+                $self->{cache}->{policy_setup} = 0;
+            }
+            $self->{lock} = 0;
+        }, $self->{policy}->{data});
+        $self->Timer;
+        return;
+    }
     
     #
     #

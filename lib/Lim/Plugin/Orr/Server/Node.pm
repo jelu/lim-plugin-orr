@@ -516,6 +516,137 @@ sub SetupHSM {
     });
 }
 
+=item SetupPolicy
+
+=cut
+
+sub SetupPolicy {
+    my ($self, $cb, $data) = @_;
+    my $json = JSON::XS->new->ascii->canonical;
+    weaken($self);
+
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+    eval {
+        $data = $json->decode($data);
+    };
+    if ($@) {
+        confess 'unable to decode Policy json data: '.$@;
+    }
+    unless (ref($data) eq 'HASH') {
+        confess 'Policy json data is not HASH';
+    }
+
+    unless ($self->LockOrQueue('SetupPolicy', $cb, $data)) {
+        return;
+    }
+
+    my $opendnssec = Lim::Plugin::OpenDNSSEC->Client;
+    $opendnssec->ReadPolicy({
+        policy => {
+            name => $data->{name}
+        }
+    }, sub {
+        my ($call, $response) = @_;
+        
+        unless (defined $self) {
+            undef $opendnssec;
+            return;
+        }
+        
+        if ($call->Successful) {
+            $self->{last_call} = time;
+            
+            if (exists $response->{policy}) {
+                my $policy = ref($response->{policy}) eq 'ARRAY' ? $response->{policy}->[0] : $response->{policy};
+                
+                my $same = 0;
+                eval {
+                    $same = $json->encode($response->{policy}) eq $json->encode($data) ? 1 : 0;
+                };
+                if ($@) {
+                    Lim::ERR and $self->{logger}->error('Unable to compare Policy data, JSON error: ', $@);
+                    $cb->();
+                }
+                elsif (!$same) {
+                    Lim::DEBUG and $self->{logger}->debug('Policy ', $data->{name}, ' needs updating');
+                    $opendnssec->UpdatePolicy({
+                        policy => $data
+                    }, sub {
+                        my ($call, $response) = @_;
+                        
+                        unless (defined $self) {
+                            undef $opendnssec;
+                            return;
+                        }
+                        
+                        if ($call->Successful) {
+                            $self->{last_call} = time;
+                            Lim::DEBUG and $self->{logger}->debug('Policy ', $data->{name}, ' updated');
+                            undef $@;
+                            $cb->(1, 1);
+                        }
+                        else {
+                            $@ = $call->Error;
+                            $cb->();
+                        }
+                        $self->Unlock;
+                        undef $opendnssec;
+                    }, {
+                        host => $self->{host},
+                        port => $self->{port}
+                    });
+                    return;
+                }
+                
+                Lim::DEBUG and $self->{logger}->debug('Policy ', $data->{name}, ' is up to date');
+                undef $@;
+                $cb->(1);
+            }
+            else {
+                Lim::DEBUG and $self->{logger}->debug('Policy ', $data->{name}, ' not found, creating');
+                $opendnssec->CreatePolicy({
+                    policy => $data
+                }, sub {
+                    my ($call, $response) = @_;
+                    
+                    unless (defined $self) {
+                        undef $opendnssec;
+                        return;
+                    }
+                    
+                    if ($call->Successful) {
+                        $self->{last_call} = time;
+                        Lim::DEBUG and $self->{logger}->debug('Policy ', $data->{name}, ' created');
+                        undef $@;
+                        $cb->(1, 1);
+                    }
+                    else {
+                        $@ = $call->Error;
+                        $cb->();
+                    }
+                    $self->Unlock;
+                    undef $opendnssec;
+                }, {
+                    host => $self->{host},
+                    port => $self->{port}
+                });
+                return;
+            }
+        }
+        else {
+            $@ = $call->Error;
+            $cb->();
+        }
+        $self->Unlock;
+        undef $opendnssec;
+    }, {
+        host => $self->{host},
+        port => $self->{port}
+    });
+}
+
 =back
 
 =head1 AUTHOR
