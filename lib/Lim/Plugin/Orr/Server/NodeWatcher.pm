@@ -390,15 +390,15 @@ sub SetupHSM {
         }
         
         if (exists $node->{cache}->{hsm_setup}) {
-            $result->{$uuid} = 1;
+            $result->{$uuid} = 0;
             next;
         }
         
         push(@{$node->{queue}}, ['SetupHSM', sub {
-            my ($successful) = @_;
+            my ($successful, $changed) = @_;
             
             if ($successful) {
-                $node->{cache}->{hsm_setup} = $result->{$uuid} = 1;
+                $node->{cache}->{hsm_setup} = $result->{$uuid} = defined $changed ? 1 : 0;
             }
             else {
                 $result->{$uuid} = undef;
