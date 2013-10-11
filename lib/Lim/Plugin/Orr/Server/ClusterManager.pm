@@ -35,7 +35,7 @@ See L<Lim::Plugin::Orr> for version.
 =cut
 
 our $VERSION = $Lim::Plugin::Orr::VERSION;
-our $TIMER_INTERVAL = 1;
+our $TIMER_INTERVAL_MAX = 10;
 our $SOFTWARE_VERSION = {
     plugin => {
         Agent => { min => '0.19', max => '0.19', required => 1 },
@@ -134,7 +134,8 @@ sub new {
         state => CLUSTER_STATE_INITIALIZING,
         state_message => undef,
         cache => {},
-        log => []
+        log => [],
+        interval => 0
     };
     bless $self, $class;
 
@@ -224,8 +225,8 @@ sub new {
         }
     }
 
-    $self->{node_watcher}->Timer(0);
-    $self->Timer(0);
+    $self->{node_watcher}->Timer;
+    $self->Timer;
 
     Lim::OBJ_DEBUG and $self->{logger}->debug('new ', __PACKAGE__, ' ', $self);
     $self;
@@ -279,10 +280,32 @@ sub Timer {
     weaken($self);
 
     $self->{timer} = AnyEvent->timer(
-        after => defined $after ? $after : $TIMER_INTERVAL,
+        after => defined $after ? $after : $self->{interval},
         cb => sub {
             defined $self and $self->Run;
         });
+}
+
+=item IncInterval
+
+=cut
+
+sub IncInterval {
+    my ($self) = @_;
+    
+    $self->{interval}++;
+
+    if ($self->{interval} > $TIMER_INTERVAL_MAX) {
+        $self->{interval} = $TIMER_INTERVAL_MAX;
+    }
+}
+
+=item ResetInterval
+
+=cut
+
+sub ResetInterval {
+    $_[0]->{interval} = 0;
 }
 
 =item Stop
@@ -306,6 +329,7 @@ sub Run {
     weaken($self);
 
     if ($self->{lock} or $self->{state} == CLUSTER_STATE_FAILURE) {
+        $self->IncInterval;
         $self->Timer;
         return;
     }
@@ -317,6 +341,7 @@ sub Run {
         my %states = $self->{node_watcher}->NodeStates;
         foreach (values %states) {
             if ($_ == NODE_STATE_UNKNOWN) {
+                $self->IncInterval;
                 $self->Timer;
                 return;
             }
@@ -389,9 +414,11 @@ sub Run {
             
             $self->Log('Version information correct and supported');
             $self->{cache}->{version} = $result;
-            $self->Timer(0);
+            $self->ResetInterval;
+            $self->Timer;
             $self->{lock} = 0;
         });
+        $self->ResetInterval;
         $self->Timer;
         return;
     }
@@ -422,6 +449,7 @@ sub Run {
                 $self->{cache}->{hsm_setup}->{$hsm} = $result;
                 $self->{lock} = 0;
             }, $hsm->{data});
+            $self->ResetInterval;
             $self->Timer;
             return;
         }
@@ -454,6 +482,7 @@ sub Run {
         }
         
         $self->Log('All HSMs setup ok');
+        
         unless (exists $self->{cache}->{hsms_setup}) {
             $self->{cache}->{hsms_setup} = 0;
         }
@@ -503,6 +532,7 @@ sub Run {
             }
             $self->{lock} = 0;
         }, $self->{policy}->{data});
+        $self->ResetInterval;
         $self->Timer;
         return;
     }
@@ -545,6 +575,7 @@ sub Run {
                 
                 $zone->{lock} = 0;
             });
+            $self->ResetInterval;
             next;
         }
         
@@ -578,7 +609,7 @@ sub Run {
     }
     
     $self->{logger}->debug($self->{uuid}, ': Run() done');
-
+    $self->IncInterval;
     $self->Timer;
 }
 

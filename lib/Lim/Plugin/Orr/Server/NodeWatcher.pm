@@ -35,7 +35,7 @@ See L<Lim::Plugin::Orr> for version.
 
 our $VERSION = $Lim::Plugin::Orr::VERSION;
 
-our $TIMER_INTERVAL = 1;
+our $TIMER_INTERVAL_MAX = 10;
 our $NODE_REPING = 30;
 
 =head1 SYNOPSIS
@@ -110,7 +110,8 @@ sub new {
     my %args = ( @_ );
     my $self = {
         logger => Log::Log4perl->get_logger,
-        node => {}
+        node => {},
+        interval => 0
     };
     bless $self, $class;
 
@@ -137,10 +138,32 @@ sub Timer {
     weaken($self);
     
     $self->{timer} = AnyEvent->timer(
-        after => defined $after ? $after : $TIMER_INTERVAL,
+        after => defined $after ? $after : $self->{interval},
         cb => sub {
             defined $self and $self->Run;
         });
+}
+
+=item IncInterval
+
+=cut
+
+sub IncInterval {
+    my ($self) = @_;
+    
+    $self->{interval}++;
+
+    if ($self->{interval} > $TIMER_INTERVAL_MAX) {
+        $self->{interval} = $TIMER_INTERVAL_MAX;
+    }
+}
+
+=item ResetInterval
+
+=cut
+
+sub ResetInterval {
+    $_[0]->{interval} = 0;
 }
 
 =item Stop
@@ -207,6 +230,7 @@ sub Run {
                 }
                 $node->{lock} = 0;
             });
+            $self->ResetInterval;
             next;
         }
         
@@ -240,6 +264,7 @@ sub Run {
             else {
                 $cb->();
             }
+            $self->ResetInterval;
         }
 
         #
@@ -247,12 +272,14 @@ sub Run {
         #
         if ($node->{remove}) {
             Lim::DEBUG and $self->{logger}->debug('Removed node ', $node->{uuid});
+            $node->{node}->Stop;
+            # TODO What about queue cbs?
             delete $self->{node}->{$node->{uuid}};
             next;
         }
     }
     $self->{logger}->debug('Run() done');
-
+    $self->IncInterval;
     $self->Timer;
 }
 
@@ -357,6 +384,7 @@ sub Versions {
                 $cb->($result);
             }
         }]);
+        $self->ResetInterval;
         $nodes++;
     }
     
@@ -409,6 +437,7 @@ sub SetupHSM {
                 $cb->($result);
             }
         }, $data]);
+        $self->ResetInterval;
         $nodes++;
     }
     
@@ -461,6 +490,7 @@ sub SetupPolicy {
                 $cb->($result);
             }
         }, $data]);
+        $self->ResetInterval;
         $nodes++;
     }
     
