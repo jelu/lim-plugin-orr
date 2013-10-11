@@ -385,7 +385,9 @@ our @__data = (
                     minimum => 'PT10800S'
                 }
             },
-            audit => 1
+            audit => {
+                active => 1
+            }
         })
     ],
     [ 'INSERT INTO cluster_policy SELECT cluster_uuid, policy_uuid FROM clusters, policies' ],

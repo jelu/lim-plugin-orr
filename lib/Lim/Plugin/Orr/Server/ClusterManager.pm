@@ -35,7 +35,7 @@ See L<Lim::Plugin::Orr> for version.
 =cut
 
 our $VERSION = $Lim::Plugin::Orr::VERSION;
-our $TIMER_INTERVAL = 5;
+our $TIMER_INTERVAL = 1;
 our $SOFTWARE_VERSION = {
     plugin => {
         Agent => { min => '0.19', max => '0.19', required => 1 },
@@ -475,8 +475,8 @@ sub Run {
             
             unless (ref($result) eq 'HASH') {
                 $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup Policy ',  $self->{policy}->{uuid}, ', result set returned is invalid.');
-                $hsm_error = 1;
-                next;
+                $self->{lock} = 0;
+                return;
             }
             
             my $policy_error;
@@ -490,6 +490,11 @@ sub Run {
                 if ($result->{$node_uuid}) {
                     $self->{cache}->{policy_setup} = 1;
                 }
+            }
+            
+            if ($policy_error) {
+                $self->{lock} = 0;
+                return;
             }
 
             $self->Log('Policy setup ok');

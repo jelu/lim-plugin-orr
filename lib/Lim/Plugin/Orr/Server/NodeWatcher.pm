@@ -35,7 +35,7 @@ See L<Lim::Plugin::Orr> for version.
 
 our $VERSION = $Lim::Plugin::Orr::VERSION;
 
-our $TIMER_INTERVAL = 5;
+our $TIMER_INTERVAL = 1;
 our $NODE_REPING = 30;
 
 =head1 SYNOPSIS
@@ -422,7 +422,7 @@ sub SetupHSM {
 =cut
 
 sub SetupPolicy {
-    my ($self, $cb) = @_;
+    my ($self, $cb, $data) = @_;
     
     unless (ref($cb) eq 'CODE') {
         confess __PACKAGE__, ': Missing cb or is not CODE';
