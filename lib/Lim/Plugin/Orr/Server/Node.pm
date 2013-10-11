@@ -647,6 +647,69 @@ sub SetupPolicy {
     });
 }
 
+=item ZoneAdd
+
+=cut
+
+sub ZoneAdd {
+    my ($self, $cb, $name, $content, $policy) = @_;
+    my $json = JSON::XS->new->ascii->canonical;
+    weaken($self);
+
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+    unless (defined $name) {
+        confess '$name is missing';
+    }
+    unless (defined $content) {
+        confess '$content is missing';
+    }
+    eval {
+        $policy = $json->decode($policy);
+    };
+    if ($@) {
+        confess 'unable to decode Policy json data: '.$@;
+    }
+    unless (ref($policy) eq 'HASH') {
+        confess 'Policy json data is not HASH';
+    }
+
+    unless ($self->LockOrQueue('ZoneAdd', $cb, $name, $content, $policy)) {
+        return;
+    }
+    
+    # TODO add logic
+    undef $@;
+    $cb->(1, 1);
+    $self->Unlock;
+}
+
+=item ZoneRemove
+
+=cut
+
+sub ZoneRemove {
+    my ($self, $cb, $name) = @_;
+    weaken($self);
+
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+    unless (defined $name) {
+        confess '$name is missing';
+    }
+
+    unless ($self->LockOrQueue('ZoneRemove', $cb, $name)) {
+        return;
+    }
+
+    # TODO add logic
+    undef $@;
+    $cb->();
+    $self->Unlock;
+}
+
 =back
 
 =head1 AUTHOR

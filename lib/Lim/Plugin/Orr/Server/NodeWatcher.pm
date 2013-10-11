@@ -509,25 +509,105 @@ sub NodeStates {
     map { $_->{uuid} => $_->{state} } values %{$self->{node}};
 }
 
+=item NodeAdd
+
+=cut
+
+sub NodeAdd {
+    my ($self, $cb) = @_;
+    
+    unless (ref($cb) eq 'CODE') {
+        confess __PACKAGE__, ': Missing cb or is not CODE';
+    }
+
+    confess __PACKAGE__, ': Not implemented';
+}
+
+=item NodeRemove
+
+=cut
+
+sub NodeRemove {
+    my ($self, $cb) = @_;
+    
+    unless (ref($cb) eq 'CODE') {
+        confess __PACKAGE__, ': Missing cb or is not CODE';
+    }
+
+    confess __PACKAGE__, ': Not implemented';
+}
+
 =item ZoneAdd
 
 =cut
 
 sub ZoneAdd {
-    my $self = shift;
-    my %args = ( @_ );
+    my ($self, $cb, $name, $content, $policy) = @_;
     
-    unless (defined $args{name}) {
+    unless (ref($cb) eq 'CODE') {
+        confess __PACKAGE__, ': Missing cb or is not CODE';
+    }
+    unless (defined $name) {
         confess __PACKAGE__, ': Missing name';
     }
-    unless (defined $args{content}) {
+    unless (defined $content) {
         confess __PACKAGE__, ': Missing content';
     }
-    unless (exists $args{cb} and ref($args{cb}) eq 'CODE') {
+    unless (defined $policy) {
+        confess __PACKAGE__, ': Missing policy';
+    }
+
+    my $result = {};
+    my $nodes = 0;
+    foreach my $node (values %{$self->{node}}) {
+        my $uuid = $node->{uuid};
+
+        unless ($node->{state} == NODE_STATE_ONLINE or $node->{state} == NODE_STATE_STANDBY) {
+            $result->{$uuid} = undef;
+            next;
+        }
+        
+        if (exists $node->{cache}->{zone}->{$name}->{setup}) {
+            $result->{$uuid} = 0;
+            next;
+        }
+        
+        push(@{$node->{queue}}, ['ZoneAdd', sub {
+            my ($successful, $changed) = @_;
+            
+            if ($successful) {
+                $node->{cache}->{zone}->{$name}->{setup} = $result->{$uuid} = defined $changed ? 1 : 0;
+            }
+            else {
+                $result->{$uuid} = undef;
+            }
+            $nodes--;
+            
+            unless ($nodes) {
+                $cb->($result);
+            }
+        }, $name, $content, $policy]);
+        $self->ResetInterval;
+        $nodes++;
+    }
+    
+    unless ($nodes) {
+        $cb->($result);
+    }
+}
+
+=item ZoneRemove
+
+=cut
+
+sub ZoneRemove {
+    my ($self, $cb) = @_;
+    
+    unless (ref($cb) eq 'CODE') {
         confess __PACKAGE__, ': Missing cb or is not CODE';
     }
 
-    # TODO
+    confess __PACKAGE__, ': Not implemented';
 }
 
 =back

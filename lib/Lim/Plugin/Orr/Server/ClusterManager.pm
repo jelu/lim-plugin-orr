@@ -155,7 +155,7 @@ sub new {
     unless (defined $args{policy}->{data}) {
         confess __PACKAGE__, ': Missing policy->data';
     }
-    # TODO validate XML
+    # TODO validate data
     $self->{policy} = $args{policy};
 
     unless (exists $args{hsms} and ref($args{hsms}) eq 'ARRAY') {
@@ -172,7 +172,7 @@ sub new {
             }
         }
         
-        # TODO validate XML
+        # TODO validate data
     }
     $self->{hsms} = $args{hsms};
     
@@ -182,26 +182,9 @@ sub new {
         }
         
         foreach (@{$args{zones}}) {
-            unless (ref($_) eq 'HASH') {
-                confess __PACKAGE__, ': zone item is not an hash ref';
+            unless ($self->ZoneAdd($_)) {
+                confess __PACKAGE__, ': ', $@;
             }
-            
-            foreach my $k (qw(uuid name input_type input_data)) {
-                unless (exists $_->{$k}) {
-                    confess __PACKAGE__, ': Missing ', $k, ' in zone item';
-                }
-            }
-            
-            if (exists $self->{zone}->{$_->{uuid}}) {
-                confess __PACKAGE__, ': zone item already exists';
-            }
-            
-            $self->{zone}->{$_->{uuid}} = $_;
-            $self->{zone}->{$_->{uuid}}->{input} = Lim::Plugin::Orr::Server::ZoneInput->new(
-                zone => $_->{name},
-                type => $_->{input_type},
-                data => $_->{input_data}
-            );
         }
     }
 
@@ -332,6 +315,18 @@ sub Run {
         $self->IncInterval;
         $self->Timer;
         return;
+    }
+    
+    #
+    # Check if we are reseting all states, this happend when adding or removing
+    # nodes.
+    #
+    if (exists $self->{cache}->{reset}) {
+        $self->State(CLUSTER_STATE_INITIALIZING, 'Resetting');
+        $self->{cache} = {};
+        foreach my $zone (values %{$self->{zone}}) {
+            $zone->{cache} = {};
+        }
     }
 
     #
@@ -528,6 +523,7 @@ sub Run {
                 $self->{cache}->{policy_setup} = 0;
             }
             $self->{lock} = 0;
+            $self->ResetInterval;
         }, $self->{policy}->{data});
         $self->ResetInterval;
         $self->Timer;
@@ -535,7 +531,7 @@ sub Run {
     }
     
     #
-    #
+    # Calculate cluster state based on information gathered so far
     #
     $self->{state} = CLUSTER_STATE_OPERATIONAL;
     
@@ -554,8 +550,8 @@ sub Run {
         #
         # Fetch zone content
         #
-        unless (exists $zone->{content}) {
-            Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Fetching zone content for zone ', $zone->{uuid});
+        unless (exists $zone->{cache}->{content}) {
+            $self->Log('Fetching zone content for zone ', $zone->{uuid});
             $zone->{lock} = 1;
             $zone->{input}->Fetch(sub {
                 my ($content) = @_;
@@ -564,13 +560,18 @@ sub Run {
                     return;
                 }
                 
-                if (defined $content) {
-                    Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Zone content for zone ', $zone->{uuid}, ' fetched');
-                    $zone->{content} = $content;
-                    $zone->{content_timestamp} = AnyEvent->now;
+                unless (defined $content) {
+                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to fetch zone ', $zone->{uuid}, ' content');
+                    $zone->{lock} = 0;
+                    return;
                 }
                 
+                $self->Log('Zone content for zone ', $zone->{uuid}, ' fetched');
+                $zone->{cache}->{content} = $content;
+                $zone->{cache}->{fetched} = AnyEvent->now;
+                delete $zone->{cache}->{updated};
                 $zone->{lock} = 0;
+                $self->ResetInterval;
             });
             $self->ResetInterval;
             next;
@@ -579,6 +580,36 @@ sub Run {
         #
         # Configure/Initiate/Verify Zone
         #
+        unless (exists $zone->{cache}->{setup}) {
+            $self->Log('Setting up zone ', $zone->{uuid});
+            $zone->{lock} = 1;
+            $self->{node_watcher}->ZoneAdd(sub {
+                my ($result) = @_;
+                
+                unless (defined $self) {
+                    return;
+                }
+                
+                unless (ref($result) eq 'HASH') {
+                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup zone ',  $zone->{uuid}, ', result set returned is invalid.');
+                    $zone->{lock} = 0;
+                    return;
+                }
+                
+                foreach my $node_uuid (keys %$result) {
+                    unless (defined $result->{$node_uuid}) {
+                        $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup zone ', $zone->{uuid}, ' on node ', $node_uuid);
+                    }
+                }
+    
+                $self->Log('Zone ', $zone->{uuid}, ' setup ok');
+                $zone->{cache}->{setup} = 1;
+                $zone->{lock} = 0;
+                $self->ResetInterval;
+            }, $zone->{name}, $zone->{cache}->{content}, $self->{policy}->{data});
+            $self->ResetInterval;
+            next;
+        }
 
         #
         # Roll KSK
@@ -667,6 +698,94 @@ sub State {
     }
     
     $self->{state} = $state;
+}
+
+=item NodeAdd
+
+=cut
+
+sub NodeAdd {
+    my $self = shift;
+    
+    if ($self->{node_watcher}->NodeAdd(@_)) {
+        $self->{cache}->{reset} = 1;
+    }
+}
+
+=item NodeRemove
+
+=cut
+
+sub NodeRemove {
+    my $self = shift;
+    
+    if ($self->{node_watcher}->NodeRemove(@_)) {
+        $self->{cache}->{reset} = 1;
+    }
+}
+
+=item ZoneAdd
+
+=cut
+
+sub ZoneAdd {
+    my $self = shift;
+    
+    foreach (@_) {
+        unless (ref($_) eq 'HASH') {
+            $@ = 'Zone is not an hash ref';
+            return;
+        }
+        
+        my $zone = {
+            cache => {}
+        };
+        
+        foreach my $k (qw(uuid name input_type input_data)) {
+            unless (exists $_->{$k}) {
+                $@ = 'Missing '.$k.' in zone item';
+                return;
+            }
+            
+            $zone->{$k} = $_->{$k};
+        }
+        
+        if (exists $self->{zone}->{$_->{uuid}}) {
+            $@ = 'Zone '.$_->{uuid}.' already exists';
+            return;
+        }
+
+        eval {
+            $zone->{input} = Lim::Plugin::Orr::Server::ZoneInput->new(
+                zone => $_->{name},
+                type => $_->{input_type},
+                data => $_->{input_data}
+            );
+        };
+        if ($@) {
+            return;
+        }
+        
+        $self->{zone}->{$_->{uuid}} = $zone;
+    }
+    
+    return 1;
+}
+
+=item ZoneRemove
+
+=cut
+
+sub ZoneRemove {
+    my ($self, $zone_uuid) = @_;
+    
+    unless (exists $self->{zone}->{$zone_uuid}) {
+        $@ = 'Zone does not exists';
+        return;
+    }
+    
+    $self->{zone}->{$zone_uuid}->{remove} = 1;
+    return 1;
 }
 
 =back
