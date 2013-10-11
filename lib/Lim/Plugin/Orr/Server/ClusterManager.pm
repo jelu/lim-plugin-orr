@@ -315,7 +315,7 @@ sub ResetInterval {
 sub Stop {
     my ($self) = @_;
 
-    $self->{logger}->debug($self->{uuid}, ': Stop()');
+    Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Stop()');
     
     delete $self->{timer};
 }
@@ -348,10 +348,7 @@ sub Run {
         }
     }
     
-    #
-    #
-    #
-    $self->{logger}->debug($self->{uuid}, ': Run() start');
+    Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Run() start');
 
     #
     # Verify Node versions
@@ -608,7 +605,7 @@ sub Run {
         #
     }
     
-    $self->{logger}->debug($self->{uuid}, ': Run() done');
+    Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Run() done');
     $self->IncInterval;
     $self->Timer;
 }

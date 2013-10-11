@@ -173,7 +173,7 @@ sub ResetInterval {
 sub Stop {
     my ($self) = @_;
 
-    $self->{logger}->debug('Stop()');
+    Lim::DEBUG and $self->{logger}->debug('Stop()');
     
     delete $self->{timer};
 }
@@ -186,7 +186,7 @@ sub Run {
     my ($self) = @_;
     weaken($self);
 
-    $self->{logger}->debug('Run() start');
+    Lim::DEBUG and $self->{logger}->debug('Run() start');
     foreach my $node (values %{$self->{node}}) {
         #
         # Skip locked nodes
@@ -278,7 +278,7 @@ sub Run {
             next;
         }
     }
-    $self->{logger}->debug('Run() done');
+    Lim::DEBUG and $self->{logger}->debug('Run() done');
     $self->IncInterval;
     $self->Timer;
 }
