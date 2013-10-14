@@ -372,7 +372,7 @@ our @__data = (
                 soa => {
                     ttl => 'PT3600S',
                     minimum => 'PT3600S',
-                    serial => 'datacounter'
+                    serial => 'datecounter'
                 }
             },
             parent => {
