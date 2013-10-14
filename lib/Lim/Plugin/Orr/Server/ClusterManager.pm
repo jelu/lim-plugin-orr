@@ -529,7 +529,11 @@ sub Run {
         $self->Timer;
         return;
     }
-    
+
+    # TODO need to handle OpenDNSSEC installations that are not setup yet
+
+    # TODO need to verify HSM setup
+        
     #
     # Calculate cluster state based on information gathered so far
     #
