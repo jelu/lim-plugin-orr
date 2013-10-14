@@ -679,10 +679,208 @@ sub ZoneAdd {
         return;
     }
     
-    # TODO add logic
-    undef $@;
-    $cb->(1, 1);
-    $self->Unlock;
+    my $dns = Lim::Plugin::DNS->Client;
+    $dns->ReadZones(sub {
+        my ($call, $response) = @_;
+        
+        unless (defined $self) {
+            undef $dns;
+            return;
+        }
+        
+        if ($call->Successful) {
+            $self->{last_call} = time;
+            
+            undef $@;
+            my $exists = 0;
+            if (exists $response->{zone}) {
+                foreach my $zone (ref($response->{zone}) eq 'ARRAY' ? @{$response->{zone}} : $response->{zone}) {
+                    # TODO path should be configurable per node
+                    if ($zone->{file} eq '/var/lib/opendnssec/unsigned/'.$name) {
+                        unless ($zone->{write}) {
+                            $@ = 'Zone exists but is not writable';
+                        }
+                        $exists = 1;
+                    }
+                }
+            }
+            
+            unless ($@) {
+                if ($exists) {
+                    $dns->UpdateZone({
+                        zone => {
+                            # TODO path should be configurable per node
+                            file => '/var/lib/opendnssec/unsigned/'.$name,
+                            content => $content
+                        }
+                    }, sub {
+                        my ($call, $response) = @_;
+                        
+                        unless (defined $self) {
+                            undef $dns;
+                            return;
+                        }
+                        
+                        if ($call->Successful) {
+                            $self->{last_call} = time;
+                            $self->ZoneAdd_Enforcer($cb, $name, $policy);
+                            undef $dns;
+                            return;
+                        }
+                        else {
+                            $@ = $call->Error;
+                            $cb->();
+                        }
+                        $self->Unlock;
+                        undef $dns;
+                    }, {
+                        host => $self->{host},
+                        port => $self->{port}
+                    });
+                    return;
+                }
+                else {
+                    $dns->CreateZone({
+                        zone => {
+                            # TODO path should be configurable per node
+                            file => '/var/lib/opendnssec/unsigned/'.$name,
+                            content => $content
+                        }
+                    }, sub {
+                        my ($call, $response) = @_;
+                        
+                        unless (defined $self) {
+                            undef $dns;
+                            return;
+                        }
+                        
+                        if ($call->Successful) {
+                            $self->{last_call} = time;
+                            $self->ZoneAdd_Enforcer($cb, $name, $policy);
+                            undef $dns;
+                            return;
+                        }
+                        else {
+                            $@ = $call->Error;
+                            $cb->();
+                        }
+                        $self->Unlock;
+                        undef $dns;
+                    }, {
+                        host => $self->{host},
+                        port => $self->{port}
+                    });
+                    return;
+                }
+            }
+            $cb->();
+        }
+        else {
+            $@ = $call->Error;
+            $cb->();
+        }
+        $self->Unlock;
+        undef $dns;
+    }, {
+        host => $self->{host},
+        port => $self->{port}
+    });
+}
+
+=item ZoneAdd_Enforcer
+
+=cut
+
+sub ZoneAdd_Enforcer {
+    my ($self, $cb, $name, $policy) = @_;
+    weaken($self);
+
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+    unless (defined $name) {
+        confess '$name is missing';
+    }
+    unless (ref($policy) eq 'HASH') {
+        confess 'Policy json data is not HASH';
+    }
+    unless ($self->{lock}) {
+        confess 'Called without beign locked';
+    }
+
+    my $opendnssec = Lim::Plugin::OpenDNSSEC->Client;
+    $opendnssec->ReadEnforcerZoneList(sub {
+        my ($call, $response) = @_;
+        
+        unless (defined $self) {
+            undef $opendnssec;
+            return;
+        }
+        
+        if ($call->Successful) {
+            $self->{last_call} = time;
+            
+            if (exists $response->{zone}) {
+                foreach my $zone (ref($response->{zone}) eq 'ARRAY' ? @{$response->{zone}} : $response->{zone}) {
+                    if ($zone->{name} eq $name) {
+                        if ($policy->{name} ne $zone->{policy}) {
+                            # TODO handle wrong policy
+                            
+                            $@ = 'Wrong policy';
+                            $cb->();
+                        }
+                        else {
+                            $cb->(1);
+                        }
+                        last;
+                    }
+                }
+            }
+            else {
+                $opendnssec->CreateEnforcerZone({
+                    zone => {
+                        name => $name,
+                        policy => $policy->{name},
+                        # TODO the following paths should be configurable per node
+                        signerconf => '/var/lib/opendnssec/signconf/'.$name.'.xml',
+                        input => '/var/lib/opendnssec/unsigned/'.$name,
+                        output => '/var/lib/opendnssec/signed/'.$name
+                    }
+                }, sub {
+                    my ($call, $response) = @_;
+                    
+                    unless (defined $self) {
+                        undef $opendnssec;
+                        return;
+                    }
+                    
+                    if ($call->Successful) {
+                        $self->{last_call} = time;
+                        $cb->(1);
+                    }
+                    else {
+                        $@ = $call->Error;
+                        $cb->();
+                    }
+                    $self->Unlock;
+                    undef $opendnssec;
+                }, {
+                    host => $self->{host},
+                    port => $self->{port}
+                });
+                return;
+            }
+        }
+        else {
+            $@ = $call->Error;
+            $cb->();
+        }
+        $self->Unlock;
+        undef $opendnssec;
+    }, {
+        host => $self->{host},
+        port => $self->{port}
+    });
 }
 
 =item ZoneRemove
