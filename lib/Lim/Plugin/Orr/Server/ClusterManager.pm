@@ -416,6 +416,13 @@ sub Run {
     }
     
     #
+    # Setup cache for nodes that will need reload later
+    #
+    unless (exists $self->{cache}->{reload}) {
+        $self->{cache}->{reload} = {};
+    }
+    
+    #
     # Configure/Initiate/Verify HSM
     #
     unless (exists $self->{cache}->{hsms_setup}) {
@@ -446,29 +453,30 @@ sub Run {
             return;
         }
 
-        my $hsm_error;
+        my $error;
         foreach my $hsm (@{$self->{hsms}}) {
             my $result = $self->{cache}->{hsm_setup}->{$hsm};
             
             unless (ref($result) eq 'HASH') {
                 $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup HSM ', $hsm->{uuid} ,', result set returned is invalid.');
-                $hsm_error = 1;
+                $error = 1;
                 next;
             }
             
             foreach my $node_uuid (keys %$result) {
                 unless (defined $result->{$node_uuid}) {
                     $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup HSM ',  $hsm->{uuid}, ' on node ', $node_uuid);
-                    $hsm_error = 1;
+                    $error = 1;
                     next;
                 }
                 
                 if ($result->{$node_uuid}) {
+                    $self->{cache}->{reload}->{$node_uuid} = 1;
                     $self->{cache}->{hsms_setup} = 1;
                 }
             }
         }
-        if ($hsm_error) {
+        if ($error) {
             $self->{lock} = 0;
             return;
         }
@@ -500,20 +508,21 @@ sub Run {
                 return;
             }
             
-            my $policy_error;
+            my $error;
             foreach my $node_uuid (keys %$result) {
                 unless (defined $result->{$node_uuid}) {
                     $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup Policy ', $self->{policy}->{uuid}, ' on node ', $node_uuid);
-                    $policy_error = 1;
+                    $error = 1;
                     next;
                 }
                 
                 if ($result->{$node_uuid}) {
+                    $self->{cache}->{reload}->{$node_uuid} = 1;
                     $self->{cache}->{policy_setup} = 1;
                 }
             }
             
-            if ($policy_error) {
+            if ($error) {
                 $self->{lock} = 0;
                 return;
             }
@@ -531,9 +540,99 @@ sub Run {
     }
 
     # TODO need to handle OpenDNSSEC installations that are not setup yet
+    
+    #
+    # Verfiy that OpenDNSSEC is running, start if not
+    #
+    unless (exists $self->{cache}->{running}) {
+        $self->Log('Verifying OpenDNSSEC is running and starting if not');
 
-    # TODO need to verify HSM setup
-        
+        $self->{lock} = 1;
+        $self->{node_watcher}->StartOpenDNSSEC(sub {
+            my ($result) = @_;
+            
+            unless (defined $self) {
+                return;
+            }
+            
+            unless (ref($result) eq 'HASH') {
+                $self->State(CLUSTER_STATE_FAILURE, 'Unable to verify or start OpenDNSSEC, result set returned is invalid.');
+                $self->{lock} = 0;
+                return;
+            }
+            
+            my $error;
+            foreach my $node_uuid (keys %$result) {
+                unless (defined $result->{$node_uuid}) {
+                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to verify or start OpenDNSSEC on node ', $node_uuid);
+                    $error = 1;
+                    next;
+                }
+                
+                # We need to reload even if OpenDNSSEC is running
+                #
+                # if ($result->{$node_uuid}) {
+                #     delete $self->{cache}->{reload}->{$node_uuid};
+                # }
+            }
+            
+            if ($error) {
+                $self->{lock} = 0;
+                return;
+            }
+
+            $self->{cache}->{running} = 1;
+            $self->{lock} = 0;
+            $self->ResetInterval;
+        });
+        $self->ResetInterval;
+        $self->Timer;
+        return;
+    }
+    
+    #
+    # Reload OpenDNSSEC on nodes that need it
+    #
+    if (%{$self->{cache}->{reload}}) {
+        $self->Log('Reload OpenDNSSEC on nodes that need it');
+
+        $self->{lock} = 1;
+        $self->{node_watcher}->ReloadOpenDNSSEC(sub {
+            my ($result) = @_;
+            
+            unless (defined $self) {
+                return;
+            }
+            
+            unless (ref($result) eq 'HASH') {
+                $self->State(CLUSTER_STATE_FAILURE, 'Unable to reload OpenDNSSEC, result set returned is invalid.');
+                $self->{lock} = 0;
+                return;
+            }
+            
+            my $error;
+            foreach my $node_uuid (keys %$result) {
+                unless (defined $result->{$node_uuid}) {
+                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to reload OpenDNSSEC on node ', $node_uuid);
+                    $error = 1;
+                    next;
+                }
+            }
+            
+            if ($error) {
+                $self->{lock} = 0;
+                return;
+            }
+
+            $self->{lock} = 0;
+            $self->ResetInterval;
+        }, keys %{$self->{cache}->{reload}});
+        $self->{cache}->{reload} = {};
+        $self->ResetInterval;
+        $self->Timer;
+        return;
+    }
+
     #
     # Calculate cluster state based on information gathered so far
     #

@@ -647,6 +647,88 @@ sub SetupPolicy {
     });
 }
 
+=item StartOpenDNSSEC
+
+=cut
+
+sub StartOpenDNSSEC {
+    my ($self, $cb) = @_;
+    weaken($self);
+
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+
+    unless ($self->LockOrQueue('StartOpenDNSSEC', $cb)) {
+        return;
+    }
+    
+    my $opendnssec = Lim::Plugin::OpenDNSSEC->Client;
+    $opendnssec->UpdateControlStart(sub {
+        my ($call, $response) = @_;
+        
+        unless (defined $self) {
+            undef $opendnssec;
+            return;
+        }
+        
+        if ($call->Successful) {
+            $self->{last_call} = time;
+            $cb->(1);
+        }
+        else {
+            $@ = $call->Error;
+            $cb->();
+        }
+        $self->Unlock;
+        undef $opendnssec;
+    }, {
+        host => $self->{host},
+        port => $self->{port}
+    });
+}
+
+=item ReloadOpenDNSSEC
+
+=cut
+
+sub ReloadOpenDNSSEC {
+    my ($self, $cb) = @_;
+    weaken($self);
+
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+
+    unless ($self->LockOrQueue('ReloadOpenDNSSEC', $cb)) {
+        return;
+    }
+    
+    my $opendnssec = Lim::Plugin::OpenDNSSEC->Client;
+    $opendnssec->UpdateEnforcerUpdate(sub {
+        my ($call, $response) = @_;
+        
+        unless (defined $self) {
+            undef $opendnssec;
+            return;
+        }
+        
+        if ($call->Successful) {
+            $self->{last_call} = time;
+            $cb->(1);
+        }
+        else {
+            $@ = $call->Error;
+            $cb->();
+        }
+        $self->Unlock;
+        undef $opendnssec;
+    }, {
+        host => $self->{host},
+        port => $self->{port}
+    });
+}
+
 =item ZoneAdd
 
 =cut
@@ -856,6 +938,10 @@ sub ZoneAdd_Enforcer {
                     
                     if ($call->Successful) {
                         $self->{last_call} = time;
+                        
+                        # TODO verify that the Signer knows about this zone
+                        # and if not we update --all
+                        
                         $cb->(1);
                     }
                     else {

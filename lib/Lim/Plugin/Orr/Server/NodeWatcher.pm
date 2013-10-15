@@ -499,6 +499,105 @@ sub SetupPolicy {
     }
 }
 
+=item StartOpenDNSSEC
+
+=cut
+
+sub StartOpenDNSSEC {
+    my ($self, $cb) = @_;
+    
+    unless (ref($cb) eq 'CODE') {
+        confess __PACKAGE__, ': Missing cb or is not CODE';
+    }
+    
+    my $result = {};
+    my $nodes = 0;
+    foreach my $node (values %{$self->{node}}) {
+        my $uuid = $node->{uuid};
+
+        unless ($node->{state} == NODE_STATE_ONLINE or $node->{state} == NODE_STATE_STANDBY) {
+            $result->{$uuid} = undef;
+            next;
+        }
+        
+        if (exists $node->{cache}->{running}) {
+            $result->{$uuid} = 0;
+            next;
+        }
+        
+        push(@{$node->{queue}}, ['StartOpenDNSSEC', sub {
+            my ($successful, $changed) = @_;
+            
+            if ($successful) {
+                $node->{cache}->{running} = $result->{$uuid} = defined $changed ? 1 : 0;
+            }
+            else {
+                $result->{$uuid} = undef;
+            }
+            $nodes--;
+            
+            unless ($nodes) {
+                $cb->($result);
+            }
+        }]);
+        $self->ResetInterval;
+        $nodes++;
+    }
+    
+    unless ($nodes) {
+        $cb->($result);
+    }
+}
+
+=item ReloadOpenDNSSEC
+
+=cut
+
+sub ReloadOpenDNSSEC {
+    my ($self, $cb, @nodes) = @_;
+    
+    unless (ref($cb) eq 'CODE') {
+        confess __PACKAGE__, ': Missing cb or is not CODE';
+    }
+    
+    my $result = {};
+    my $nodes = 0;
+    foreach my $uuid (@nodes) {
+        unless (exists $self->{node}->{$uuid}) {
+            $result->{$uuid} = undef;
+            next;
+        }
+        my $node = $self->{node}->{$uuid};
+
+        unless ($node->{state} == NODE_STATE_ONLINE or $node->{state} == NODE_STATE_STANDBY) {
+            $result->{$uuid} = undef;
+            next;
+        }
+        
+        push(@{$node->{queue}}, ['ReloadOpenDNSSEC', sub {
+            my ($successful) = @_;
+            
+            if ($successful) {
+                $result->{$uuid} = 1;
+            }
+            else {
+                $result->{$uuid} = undef;
+            }
+            $nodes--;
+            
+            unless ($nodes) {
+                $cb->($result);
+            }
+        }]);
+        $self->ResetInterval;
+        $nodes++;
+    }
+    
+    unless ($nodes) {
+        $cb->($result);
+    }
+}
+
 =item NodeStates
 
 =cut
