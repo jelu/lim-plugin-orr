@@ -910,11 +910,12 @@ sub ZoneAdd_Enforcer {
                             
                             $@ = 'Wrong policy';
                             $cb->();
+                            last;
                         }
-                        else {
-                            $cb->(1);
-                        }
-                        last;
+                        
+                        $self->ZoneAdd_Signer($cb, $name);
+                        undef $opendnssec;
+                        return;
                     }
                 }
             }
@@ -938,10 +939,109 @@ sub ZoneAdd_Enforcer {
                     
                     if ($call->Successful) {
                         $self->{last_call} = time;
-                        
-                        # TODO verify that the Signer knows about this zone
-                        # and if not we update --all
-                        
+                        $self->ZoneAdd_Signer($cb, $name);
+                        undef $opendnssec;
+                        return;
+                    }
+                    else {
+                        $@ = $call->Error;
+                        $cb->();
+                    }
+                    $self->Unlock;
+                    undef $opendnssec;
+                }, {
+                    host => $self->{host},
+                    port => $self->{port}
+                });
+                return;
+            }
+        }
+        else {
+            $@ = $call->Error;
+            $cb->();
+        }
+        $self->Unlock;
+        undef $opendnssec;
+    }, {
+        host => $self->{host},
+        port => $self->{port}
+    });
+}
+
+=item ZoneAdd_Signer
+
+=cut
+
+sub ZoneAdd_Signer {
+    my ($self, $cb, $name) = @_;
+    weaken($self);
+
+    unless (ref($cb) eq 'CODE') {
+        confess '$cb is not CODE';
+    }
+    unless (defined $name) {
+        confess '$name is missing';
+    }
+    unless ($self->{lock}) {
+        confess 'Called without beign locked';
+    }
+
+    my $opendnssec = Lim::Plugin::OpenDNSSEC->Client;
+    $opendnssec->ReadSignerZones(sub {
+        my ($call, $response) = @_;
+        
+        unless (defined $self) {
+            undef $opendnssec;
+            return;
+        }
+        
+        if ($call->Successful) {
+            $self->{last_call} = time;
+            
+            if (exists $response->{zone}) {
+                foreach my $zone (ref($response->{zone}) eq 'ARRAY' ? @{$response->{zone}} : $response->{zone}) {
+                    if ($zone->{name} eq $name) {
+                        $opendnssec->UpdateSignerUpdate({
+                            zone => {
+                                name => $name
+                            }
+                        }, sub {
+                            my ($call, $response) = @_;
+                            
+                            unless (defined $self) {
+                                undef $opendnssec;
+                                return;
+                            }
+                            
+                            if ($call->Successful) {
+                                $self->{last_call} = time;
+                                $cb->(1);
+                            }
+                            else {
+                                $@ = $call->Error;
+                                $cb->();
+                            }
+                            $self->Unlock;
+                            undef $opendnssec;
+                        }, {
+                            host => $self->{host},
+                            port => $self->{port}
+                        });
+                        return;
+                    }
+                }
+            }
+            else {
+                $opendnssec->UpdateSignerUpdate(sub {
+                    my ($call, $response) = @_;
+                    
+                    unless (defined $self) {
+                        undef $opendnssec;
+                        return;
+                    }
+                    
+                    if ($call->Successful) {
+                        $self->{last_call} = time;
                         $cb->(1);
                     }
                     else {
