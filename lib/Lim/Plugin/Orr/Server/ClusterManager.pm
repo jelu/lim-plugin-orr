@@ -364,9 +364,15 @@ sub Run {
                 return;
             }
             
+            my $error;
             foreach my $node_uuid (keys %$result) {
+                unless (defined $result->{$node_uuid}) {
+                    $self->Log('Unable to retrieve version for node ', $node_uuid);
+                    $error = 1;
+                    next;
+                }
                 unless (ref($result->{$node_uuid}) eq 'HASH') {
-                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to retrieve versions of software running on node ', $node_uuid, ': no versions returned');
+                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to retrieve versions of software running on node ', $node_uuid, ': structure is invalid');
                     $self->{lock} = 0;
                     return;
                 }
@@ -382,9 +388,9 @@ sub Run {
                     foreach my $entry (keys %{$SOFTWARE_VERSION->{$what}}) {
                         unless (exists $node->{$what}->{$entry}) {
                             if ($SOFTWARE_VERSION->{$what}->{$entry}->{required}) {
-                                $self->State(CLUSTER_STATE_FAILURE, 'Missing required software ', $entry, ' for node ', $node_uuid);
-                                $self->{lock} = 0;
-                                return;
+                                $self->Log('Missing required software ', $entry, ' for node ', $node_uuid);
+                                $self->{node_watcher}->NodeState($node_uuid, NODE_STATE_FAILURE);
+                                $error = 1;
                             }
                             next;
                         }
@@ -394,18 +400,22 @@ sub Run {
                             ($SOFTWARE_VERSION->{$what}->{$entry}->{max} lt
                              $node->{$what}->{$entry}))
                         {
-                            $self->State(CLUSTER_STATE_FAILURE, 'Software ', $entry, ' version ', $node->{$what}->{$entry}, ' on node ', $node_uuid,
+                            $self->Log('Software ', $entry, ' version ', $node->{$what}->{$entry}, ' on node ', $node_uuid,
                                 ' is not supported. Supported are minimum version ', $SOFTWARE_VERSION->{$what}->{$entry}->{min},
                                 ' and maximum version ', $SOFTWARE_VERSION->{$what}->{$entry}->{max});
-                            $self->{lock} = 0;
-                            return;
+                            $self->{node_watcher}->NodeState($node_uuid, NODE_STATE_FAILURE);
+                            $error = 1;
                         }
                     }
                 }
             }
+            $self->{cache}->{version} = $result;
+            if ($error) {
+                $self->{lock} = 0;
+                return;
+            }
             
             $self->Log('Version information correct and supported');
-            $self->{cache}->{version} = $result;
             $self->ResetInterval;
             $self->Timer;
             $self->{lock} = 0;
@@ -459,13 +469,13 @@ sub Run {
             
             unless (ref($result) eq 'HASH') {
                 $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup HSM ', $hsm->{uuid} ,', result set returned is invalid.');
-                $error = 1;
-                next;
+                $self->{lock} = 0;
+                return;
             }
             
             foreach my $node_uuid (keys %$result) {
                 unless (defined $result->{$node_uuid}) {
-                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup HSM ',  $hsm->{uuid}, ' on node ', $node_uuid);
+                    $self->Log('Unable to setup HSM ',  $hsm->{uuid}, ' on node ', $node_uuid);
                     $error = 1;
                     next;
                 }
@@ -511,7 +521,7 @@ sub Run {
             my $error;
             foreach my $node_uuid (keys %$result) {
                 unless (defined $result->{$node_uuid}) {
-                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup Policy ', $self->{policy}->{uuid}, ' on node ', $node_uuid);
+                    $self->Log('Unable to setup Policy ', $self->{policy}->{uuid}, ' on node ', $node_uuid);
                     $error = 1;
                     next;
                 }
@@ -564,16 +574,10 @@ sub Run {
             my $error;
             foreach my $node_uuid (keys %$result) {
                 unless (defined $result->{$node_uuid}) {
-                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to verify or start OpenDNSSEC on node ', $node_uuid);
+                    $self->Log('Unable to verify or start OpenDNSSEC on node ', $node_uuid);
                     $error = 1;
                     next;
                 }
-                
-                # We need to reload even if OpenDNSSEC is running
-                #
-                # if ($result->{$node_uuid}) {
-                #     delete $self->{cache}->{reload}->{$node_uuid};
-                # }
             }
             
             if ($error) {
@@ -613,7 +617,7 @@ sub Run {
             my $error;
             foreach my $node_uuid (keys %$result) {
                 unless (defined $result->{$node_uuid}) {
-                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to reload OpenDNSSEC on node ', $node_uuid);
+                    $self->Log('Unable to reload OpenDNSSEC on node ', $node_uuid);
                     $error = 1;
                     next;
                 }
@@ -636,7 +640,48 @@ sub Run {
     #
     # Calculate cluster state based on information gathered so far
     #
-    $self->{state} = CLUSTER_STATE_OPERATIONAL;
+    {
+        my ($total, $failure, $offline, %state);
+        %state = $self->{node_watcher}->NodeStates;
+        foreach my $node_uuid (keys %state) {
+            $total++;
+            
+            if ($state{$node_uuid} == NODE_STATE_UNKNOWN) {
+                confess __PACKAGE__, ': Node ', $node_uuid, ' in UNKNOWN state, this should not be possible here';
+            }
+            elsif ($state{$node_uuid} == NODE_STATE_OFFLINE) {
+                $offline++;
+            }
+            elsif ($state{$node_uuid} == NODE_STATE_ONLINE) {
+            }
+            elsif ($state{$node_uuid} == NODE_STATE_FAILURE) {
+                $failure++;
+            }
+            elsif ($state{$node_uuid} == NODE_STATE_STANDBY) {
+                $self->Log('Upgrading node ', $node_uuid, ' from STANDBY to ONLINE');
+                $self->{node_watcher}->NodeState($node_uuid, NODE_STATE_ONLINE);
+            }
+            elsif ($state{$node_uuid} == NODE_STATE_DISABLED) {
+                $offline++;
+            }
+        }
+        
+        if ($failure or $offline) {
+            if (($total - $failure - $offline)) {
+                unless ($self->{state} == CLUSTER_STATE_DEGRADED) {
+                    $self->State(CLUSTER_STATE_DEGRADED, 'Nodes failure:', $failure, ' offline:', $offline);
+                }
+            }
+            else {
+                $self->State(CLUSTER_STATE_FAILURE, 'All nodes failure or offline');
+            }
+        }
+        else {
+            unless ($self->{state} == CLUSTER_STATE_OPERATIONAL) {
+                $self->State(CLUSTER_STATE_OPERATIONAL, 'Cluster operational');
+            }
+        }
+    }
     
     #
     # Process zones
@@ -767,6 +812,7 @@ sub State {
     if ($state == CLUSTER_STATE_INITIALIZING) {
         if ($self->{state} == CLUSTER_STATE_FAILURE) {
             $self->Log('(State INITIALIZING) ', @_);
+            return;
         }
         else {
             $self->Log('State INITIALIZING: ', @_);
@@ -775,6 +821,7 @@ sub State {
     elsif ($state == CLUSTER_STATE_OPERATIONAL) {
         if ($self->{state} == CLUSTER_STATE_FAILURE) {
             $self->Log('(State OPERATIONAL) ', @_);
+            return;
         }
         else {
             $self->Log('State OPERATIONAL: ', @_);
@@ -783,6 +830,7 @@ sub State {
     elsif ($state == CLUSTER_STATE_DEGRADED) {
         if ($self->{state} == CLUSTER_STATE_FAILURE) {
             $self->Log('(State DEGRADED) ', @_);
+            return;
         }
         else {
             $self->Log('State DEGRADED: ', @_);

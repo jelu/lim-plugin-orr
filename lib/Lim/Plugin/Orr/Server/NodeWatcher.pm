@@ -222,6 +222,7 @@ sub Run {
                     }
                 }
                 else {
+                    # TODO figure out if the node failed or is offline
                     if ($node->{state} == NODE_STATE_ONLINE or $node->{state} == NODE_STATE_STANDBY or $node->{state} == NODE_STATE_UNKNOWN) {
                         Lim::DEBUG and $self->{logger}->debug('Node ', $node->{uuid}, ' STATE OFFLINE');
                         $node->{state} = NODE_STATE_OFFLINE;
@@ -376,6 +377,7 @@ sub Versions {
                 $node->{cache}->{versions} = $result->{$uuid} = $version;
             }
             else {
+                $node->{state} = NODE_STATE_FAILURE;
                 $result->{$uuid} = undef;
             }
             $nodes--;
@@ -429,6 +431,7 @@ sub SetupHSM {
                 $node->{cache}->{hsm_setup} = $result->{$uuid} = defined $changed ? 1 : 0;
             }
             else {
+                $node->{state} = NODE_STATE_FAILURE;
                 $result->{$uuid} = undef;
             }
             $nodes--;
@@ -482,6 +485,7 @@ sub SetupPolicy {
                 $node->{cache}->{policy_setup} = $result->{$uuid} = defined $changed ? 1 : 0;
             }
             else {
+                $node->{state} = NODE_STATE_FAILURE;
                 $result->{$uuid} = undef;
             }
             $nodes--;
@@ -532,6 +536,7 @@ sub StartOpenDNSSEC {
                 $node->{cache}->{running} = $result->{$uuid} = defined $changed ? 1 : 0;
             }
             else {
+                $node->{state} = NODE_STATE_FAILURE;
                 $result->{$uuid} = undef;
             }
             $nodes--;
@@ -581,6 +586,7 @@ sub ReloadOpenDNSSEC {
                 $result->{$uuid} = 1;
             }
             else {
+                $node->{state} = NODE_STATE_FAILURE;
                 $result->{$uuid} = undef;
             }
             $nodes--;
@@ -596,6 +602,35 @@ sub ReloadOpenDNSSEC {
     unless ($nodes) {
         $cb->($result);
     }
+}
+
+=item NodeState
+
+=cut
+
+sub NodeState {
+    my ($self, $uuid, $state) = @_;
+    
+    unless (exists $self->{node}->{$uuid}) {
+        confess __PACKAGE__, ': Node ', $uuid, ' does not exists';
+    }
+    
+    if (defined $state) {
+        my $match;
+        foreach ((NODE_STATE_OFFLINE, NODE_STATE_ONLINE, NODE_STATE_FAILURE ,NODE_STATE_STANDBY, NODE_STATE_DISABLED)) {
+            if ($_ == $state) {
+                $match = 1;
+                last;
+            }
+        }
+        unless ($match) {
+            confess __PACKAGE__, ': Unknown state ', $state;
+        }
+        
+        $self->{node}->{$uuid}->{state} = $state;
+    }
+    
+    $self->{node}->{$uuid}->{state};
 }
 
 =item NodeStates
