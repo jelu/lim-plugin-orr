@@ -110,6 +110,13 @@ sub CLUSTER_STATE_OPERATIONAL  (){ 1 }
 sub CLUSTER_STATE_DEGRADED     (){ 2 }
 sub CLUSTER_STATE_FAILURE      (){ 3 }
 sub CLUSTER_STATE_DISABLED     (){ 4 }
+our %CLUSTER_STATE = (
+    CLUSTER_STATE_INITIALIZING() => 'INITIALIZING',
+    CLUSTER_STATE_OPERATIONAL() => 'OPERATIONAL',
+    CLUSTER_STATE_DEGRADED() => 'DEGRADED',
+    CLUSTER_STATE_FAILURE() => 'FAILURE',
+    CLUSTER_STATE_FAILURE() => 'FAILURE'
+);
 
 =head1 METHODS
 
@@ -132,7 +139,7 @@ sub new {
         zone => {},
         lock => 0,
         state => CLUSTER_STATE_INITIALIZING,
-        state_message => undef,
+        state_timestamp => time,
         cache => {},
         log => [],
         interval => 0
@@ -368,7 +375,7 @@ sub Run {
             foreach my $node_uuid (keys %$result) {
                 unless (defined $result->{$node_uuid}) {
                     $self->Log('Unable to retrieve version for node ', $node_uuid);
-                    $error = 1;
+                    $error++;
                     next;
                 }
                 unless (ref($result->{$node_uuid}) eq 'HASH') {
@@ -390,7 +397,7 @@ sub Run {
                             if ($SOFTWARE_VERSION->{$what}->{$entry}->{required}) {
                                 $self->Log('Missing required software ', $entry, ' for node ', $node_uuid);
                                 $self->{node_watcher}->NodeState($node_uuid, NODE_STATE_FAILURE);
-                                $error = 1;
+                                $error++;
                             }
                             next;
                         }
@@ -404,18 +411,19 @@ sub Run {
                                 ' is not supported. Supported are minimum version ', $SOFTWARE_VERSION->{$what}->{$entry}->{min},
                                 ' and maximum version ', $SOFTWARE_VERSION->{$what}->{$entry}->{max});
                             $self->{node_watcher}->NodeState($node_uuid, NODE_STATE_FAILURE);
-                            $error = 1;
+                            $error++;
                         }
                     }
                 }
             }
             $self->{cache}->{version} = $result;
             if ($error) {
-                $self->{lock} = 0;
-                return;
+                $self->Log('Version information problems on ', $error, ' nodes');
+            }
+            else {
+                $self->Log('Version information correct and supported');
             }
             
-            $self->Log('Version information correct and supported');
             $self->ResetInterval;
             $self->Timer;
             $self->{lock} = 0;
@@ -476,7 +484,7 @@ sub Run {
             foreach my $node_uuid (keys %$result) {
                 unless (defined $result->{$node_uuid}) {
                     $self->Log('Unable to setup HSM ',  $hsm->{uuid}, ' on node ', $node_uuid);
-                    $error = 1;
+                    $error++;
                     next;
                 }
                 
@@ -486,15 +494,16 @@ sub Run {
                 }
             }
         }
-        if ($error) {
-            $self->{lock} = 0;
-            return;
-        }
-        
-        $self->Log('All HSMs setup ok');
         
         unless (exists $self->{cache}->{hsms_setup}) {
             $self->{cache}->{hsms_setup} = 0;
+        }
+
+        if ($error) {
+            $self->Log('HSMs setup problems on ', $error, ' nodes');
+        }
+        else {
+            $self->Log('All HSMs setup ok');
         }
     }
     
@@ -522,7 +531,7 @@ sub Run {
             foreach my $node_uuid (keys %$result) {
                 unless (defined $result->{$node_uuid}) {
                     $self->Log('Unable to setup Policy ', $self->{policy}->{uuid}, ' on node ', $node_uuid);
-                    $error = 1;
+                    $error++;
                     next;
                 }
                 
@@ -532,15 +541,17 @@ sub Run {
                 }
             }
             
-            if ($error) {
-                $self->{lock} = 0;
-                return;
-            }
-
-            $self->Log('Policy setup ok');
             unless (exists $self->{cache}->{policy_setup}) {
                 $self->{cache}->{policy_setup} = 0;
             }
+
+            if ($error) {
+                $self->Log('Policy setup problems on ', $error, ' nodes');
+            }
+            else {
+                $self->Log('Policy setup ok');
+            }
+
             $self->{lock} = 0;
             $self->ResetInterval;
         }, $self->{policy}->{data});
@@ -575,17 +586,19 @@ sub Run {
             foreach my $node_uuid (keys %$result) {
                 unless (defined $result->{$node_uuid}) {
                     $self->Log('Unable to verify or start OpenDNSSEC on node ', $node_uuid);
-                    $error = 1;
-                    next;
+                    $error++;
                 }
             }
             
-            if ($error) {
-                $self->{lock} = 0;
-                return;
-            }
-
             $self->{cache}->{running} = 1;
+            
+            if ($error) {
+                $self->Log('Verifying or starting OpenDNSSEC problems on ', $error, ' nodes')
+            }
+            else {
+                $self->Log('OpenDNSSEC start ok');
+            }
+            
             $self->{lock} = 0;
             $self->ResetInterval;
         });
@@ -618,16 +631,17 @@ sub Run {
             foreach my $node_uuid (keys %$result) {
                 unless (defined $result->{$node_uuid}) {
                     $self->Log('Unable to reload OpenDNSSEC on node ', $node_uuid);
-                    $error = 1;
-                    next;
+                    $error++;
                 }
             }
             
             if ($error) {
-                $self->{lock} = 0;
-                return;
+                $self->Log('Reload problems on ', $error, ' nodes');
             }
-
+            else {
+                $self->Log('Reload ok');
+            }
+            
             $self->{lock} = 0;
             $self->ResetInterval;
         }, keys %{$self->{cache}->{reload}});
@@ -641,7 +655,7 @@ sub Run {
     # Calculate cluster state based on information gathered so far
     #
     {
-        my ($total, $failure, $offline, %state);
+        my ($total, $failure, $offline, $standby, %state) = (0, 0, 0, 0);
         %state = $self->{node_watcher}->NodeStates;
         foreach my $node_uuid (keys %state) {
             $total++;
@@ -658,22 +672,39 @@ sub Run {
                 $failure++;
             }
             elsif ($state{$node_uuid} == NODE_STATE_STANDBY) {
-                $self->Log('Upgrading node ', $node_uuid, ' from STANDBY to ONLINE');
-                $self->{node_watcher}->NodeState($node_uuid, NODE_STATE_ONLINE);
+                if ($self->{state} == CLUSTER_STATE_INITIALIZING) {
+                    $self->Log('Upgrading node ', $node_uuid, ' from STANDBY to ONLINE');
+                    $self->{node_watcher}->NodeState($node_uuid, NODE_STATE_ONLINE);
+                }
+                else {
+                    $standby++;
+                }
             }
             elsif ($state{$node_uuid} == NODE_STATE_DISABLED) {
                 $offline++;
             }
         }
         
-        if ($failure or $offline) {
-            if (($total - $failure - $offline)) {
+        if ($standby) {
+            unless ($self->{state} == CLUSTER_STATE_INITIALIZING) {
+                $self->State(CLUSTER_STATE_INITIALIZING, 'Cluster (re)initializing because of nodes in STANDBY state');
+                $self->{cache} = {};
+                foreach my $zone (values %{$self->{zone}}) {
+                    $zone->{cache} = {};
+                }
+                $self->ResetInterval;
+            }
+        }
+        elsif ($failure or $offline) {
+            if ($total == $failure) {
+                $self->State(CLUSTER_STATE_FAILURE, 'All nodes FAILURE');
+            }
+            else {
+                # TODO if all nodes are offline should we switch to FAILURE
+                # after some time or keep cluster in DEGRADED?
                 unless ($self->{state} == CLUSTER_STATE_DEGRADED) {
                     $self->State(CLUSTER_STATE_DEGRADED, 'Nodes failure:', $failure, ' offline:', $offline);
                 }
-            }
-            else {
-                $self->State(CLUSTER_STATE_FAILURE, 'All nodes failure or offline');
             }
         }
         else {
@@ -681,6 +712,15 @@ sub Run {
                 $self->State(CLUSTER_STATE_OPERATIONAL, 'Cluster operational');
             }
         }
+    }
+    
+    #
+    # Don't continue unless cluster is OPERATIONAL or DEGRADED
+    #
+    unless ($self->{state} == CLUSTER_STATE_OPERATIONAL or $self->{state} == CLUSTER_STATE_DEGRADED) {
+        Lim::DEBUG and $self->{logger}->debug($self->{uuid}, ': Run() stopped, state ', $CLUSTER_STATE{$self->{state}});
+        $self->Timer;
+        return;
     }
     
     #
@@ -744,14 +784,23 @@ sub Run {
                     return;
                 }
                 
+                my $error;
                 foreach my $node_uuid (keys %$result) {
                     unless (defined $result->{$node_uuid}) {
-                        $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup zone ', $zone->{uuid}, ' on node ', $node_uuid);
+                        $self->Log('Unable to setup zone ', $zone->{uuid}, ' on node ', $node_uuid);
+                        $error = 1;
                     }
                 }
-    
-                $self->Log('Zone ', $zone->{uuid}, ' setup ok');
+                
                 $zone->{cache}->{setup} = 1;
+                
+                if ($error) {
+                    $self->Log('Zone ', $zone->{uuid}, ' setup problems on ', $error, ' nodes');
+                }
+                else {
+                    $self->Log('Zone ', $zone->{uuid}, ' setup ok');
+                }
+                
                 $zone->{lock} = 0;
                 $self->ResetInterval;
             }, $zone->{name}, $zone->{cache}->{content}, $self->{policy}->{data});
@@ -798,7 +847,7 @@ sub Log {
     my $log = join('', @_);
     
     Lim::INFO and $self->{logger}->info($self->{uuid}, ': ', $log);
-    push(@{$self->{log}}, $log);
+    push(@{$self->{log}}, time, $log);
 }
 
 =item State
@@ -849,6 +898,7 @@ sub State {
     }
     
     $self->{state} = $state;
+    $self->{state_timestamp} = time;
 }
 
 =item NodeAdd
