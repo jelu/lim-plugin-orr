@@ -300,6 +300,10 @@ sub Add {
         $@ = 'Missing uri';
         return;
     }
+    unless (defined $args{mode}) {
+        $@ = 'Missing mode';
+        return;
+    }
     
     if (exists $self->{node}->{$args{uuid}}) {
         $@ = 'A node with that UUID already exists';
@@ -320,6 +324,7 @@ sub Add {
     $self->{node}->{$args{uuid}} = {
         uuid => $args{uuid},
         uri => $args{uri},
+        mode => $args{mode},
         state => NODE_STATE_UNKNOWN,
         node => $node,
         remove => 0,
@@ -641,6 +646,16 @@ sub NodeStates {
     my ($self) = @_;
     
     map { $_->{uuid} => $_->{state} } values %{$self->{node}};
+}
+
+=item NodeModes
+
+=cut
+
+sub NodeModes {
+    my ($self) = @_;
+    
+    map { $_->{uuid} => $_->{mode} } values %{$self->{node}};
 }
 
 =item NodeAdd
