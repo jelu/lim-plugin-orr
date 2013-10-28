@@ -126,6 +126,10 @@ CLUSTER STATES
     as it should but enough is working to continue. This can happen if a node
     can't be reached or is failing.
 
+  DISFUNCTIONAL
+    This state is when the cluster is not working but no fatal problems has
+    occurred so it will be able to recover later on.
+
   FAILURE
     This is a serious and fatal state, something happened so that the cluster
     can not continue and has stopped all processing.

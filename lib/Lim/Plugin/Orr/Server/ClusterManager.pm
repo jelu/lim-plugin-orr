@@ -17,6 +17,7 @@ our @EXPORT = qw(
     CLUSTER_STATE_INITIALIZING
     CLUSTER_STATE_OPERATIONAL
     CLUSTER_STATE_DEGRADED
+    CLUSTER_STATE_DISFUNCTIONAL
     CLUSTER_STATE_FAILURE
     CLUSTER_STATE_DISABLED
 );
@@ -89,6 +90,11 @@ This state is much like OPERATIONAL but part of the cluster is not working as it
 should but enough is working to continue. This can happen if a node can't be
 reached or is failing.
 
+=item CLUSTER_STATE_DISFUNCTIONAL
+
+This state is when the cluster is not working but no fatal problems has occurred
+so it will be able to recover later on.
+
 =item CLUSTER_STATE_FAILURE
 
 This is a serious and fatal state, something happened so that the cluster can
@@ -105,17 +111,40 @@ Can only be set through manual actions.
 
 =cut
 
-sub CLUSTER_STATE_INITIALIZING (){ 0 }
-sub CLUSTER_STATE_OPERATIONAL  (){ 1 }
-sub CLUSTER_STATE_DEGRADED     (){ 2 }
-sub CLUSTER_STATE_FAILURE      (){ 3 }
-sub CLUSTER_STATE_DISABLED     (){ 4 }
+sub CLUSTER_STATE_INITIALIZING  (){ 0 }
+sub CLUSTER_STATE_OPERATIONAL   (){ 1 }
+sub CLUSTER_STATE_DEGRADED      (){ 2 }
+sub CLUSTER_STATE_DISFUNCTIONAL (){ 3 }
+sub CLUSTER_STATE_FAILURE       (){ 4 }
+sub CLUSTER_STATE_DISABLED      (){ 5 }
 our %CLUSTER_STATE = (
     CLUSTER_STATE_INITIALIZING() => 'INITIALIZING',
     CLUSTER_STATE_OPERATIONAL() => 'OPERATIONAL',
     CLUSTER_STATE_DEGRADED() => 'DEGRADED',
+    CLUSTER_STATE_DISFUNCTIONAL() => 'DISFUNCTIONAL',
     CLUSTER_STATE_FAILURE() => 'FAILURE',
-    CLUSTER_STATE_FAILURE() => 'FAILURE'
+    CLUSTER_STATE_DISABLED() => 'DISABLED'
+);
+
+=head1 CLUSTER MODES
+
+=over 4
+
+=item CLUSTER_MODE_BACKUP
+
+=item CLUSTER_MODE_FAILOVER
+
+=item CLUSTER_MODE_BALANCE
+
+=cut
+
+sub CLUSTER_MODE_BACKUP   (){ 0 }
+sub CLUSTER_MODE_FAILOVER (){ 1 }
+sub CLUSTER_MODE_BALANCE  (){ 2 }
+our %CLUSTER_MODE = (
+    CLUSTER_MODE_BACKUP() => 'BACKUP',
+    CLUSTER_MODE_FAILOVER() => 'FAILOVER',
+    CLUSTER_MODE_BALANCE() => 'BALANCE'
 );
 
 =head1 METHODS
@@ -151,6 +180,14 @@ sub new {
     }
     unless (defined $args{mode}) {
         confess __PACKAGE__, ': Missing mode';
+    }
+    foreach (keys %CLUSTER_MODE) {
+        if ($args{mode} eq $CLUSTER_MODE{$_}) {
+            $self->{mode} = $CLUSTER_MODE{$_};
+        }
+    }
+    unless (exists $self->{mode}) {
+        confess __PACKAGE__, ': mode is invalid';
     }
 
     unless (exists $args{policy} and ref($args{policy}) eq 'HASH') {
@@ -196,7 +233,6 @@ sub new {
     }
 
     $self->{uuid} = $args{uuid};
-    $self->{mode} = $args{mode};
     $self->{node_watcher} = Lim::Plugin::Orr::Server::NodeWatcher->new;
     
     if (exists $args{nodes}) {
@@ -683,6 +719,10 @@ sub Run {
             elsif ($state{$node_uuid} == NODE_STATE_DISABLED) {
                 $offline++;
             }
+            else {
+                $self->State(CLUSTER_STATE_FAILURE, 'Unknown node state ', $state{$node_state}, ' for node ', $node_uuid);
+                return;
+            }
         }
         
         if ($standby) {
@@ -700,9 +740,7 @@ sub Run {
                 $self->State(CLUSTER_STATE_FAILURE, 'All nodes FAILURE');
             }
             else {
-                # TODO if all nodes are offline should we switch to FAILURE
-                # after some time or keep cluster in DEGRADED?
-                unless ($self->{state} == CLUSTER_STATE_DEGRADED) {
+                if ($self->{state} == CLUSTER_STATE_OPERATIONAL) {
                     $self->State(CLUSTER_STATE_DEGRADED, 'Nodes failure:', $failure, ' offline:', $offline);
                 }
             }
@@ -710,6 +748,26 @@ sub Run {
         else {
             unless ($self->{state} == CLUSTER_STATE_OPERATIONAL) {
                 $self->State(CLUSTER_STATE_OPERATIONAL, 'Cluster operational');
+            }
+        }
+        
+        #
+        # If cluster state is OPERATIONAL or DEGRADED, figure out per cluster
+        # mode if we have enough nodes to work with
+        #
+        unless ($self->{state} == CLUSTER_STATE_OPERATIONAL or $self->{state} == CLUSTER_STATE_DEGRADED) {
+            if ($self->{mode} == CLUSTER_MODE_BACKUP) {
+                
+            }
+            elsif ($self->{mode} == CLUSTER_MODE_FAILOVER) {
+                
+            }
+            elsif ($self->{mode} == CLUSTER_MODE_BALANCE) {
+                
+            }
+            else {
+                $self->State(CLUSTER_STATE_FAILURE, 'Unknown node state ', $state{$node_state}, ' for node ', $node_uuid);
+                return;
             }
         }
     }
