@@ -720,7 +720,7 @@ sub Run {
                 $offline++;
             }
             else {
-                $self->State(CLUSTER_STATE_FAILURE, 'Unknown node state ', $state{$node_state}, ' for node ', $node_uuid);
+                $self->State(CLUSTER_STATE_FAILURE, 'Unknown node state ', $state{$node_uuid}, ' for node ', $node_uuid);
                 return;
             }
         }
@@ -766,7 +766,7 @@ sub Run {
                 
             }
             else {
-                $self->State(CLUSTER_STATE_FAILURE, 'Unknown node state ', $state{$node_state}, ' for node ', $node_uuid);
+                $self->State(CLUSTER_STATE_FAILURE, 'Unknown state');
                 return;
             }
         }
