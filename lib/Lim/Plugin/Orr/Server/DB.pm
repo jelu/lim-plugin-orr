@@ -322,13 +322,13 @@ our @__data = (
             name => 'orr-default',
             description => 'The default policy for Orr',
             signatures => {
-                resign => 'PT2H',
-                refresh => 'P3D',
+                resign => 'PT20M',
+                refresh => 'PT1H',
                 validity => {
-                    default => 'P7D',
-                    denial => 'P7D'
+                    default => 'P1D',
+                    denial => 'P1D'
                 },
-                jitter => 'PT12H',
+                jitter => 'PT10M',
                 inception_offset => 'PT3600S'
             },
             denial => {
@@ -344,9 +344,9 @@ our @__data = (
                 }
             },
             keys => {
-                ttl => 'PT3600S',
-                retire_safety => 'PT3600S',
-                publish_safety => 'PT3600S',
+                ttl => 'PT300S',
+                retire_safety => 'PT360S',
+                publish_safety => 'PT360S',
                 purge => 'P14D',
                 ksk => {
                     algorithm => {
@@ -362,16 +362,16 @@ our @__data = (
                         value => 8,
                         length => 1024
                     },
-                    lifetime => 'P1Y',
+                    lifetime => 'PT8H',
                     repository => 'SoftHSM',
                     manual_rollover => 1
                 }
             },
             zone => {
-                propagation_delay => 'PT43200S',
+                propagation_delay => 'PT300S',
                 soa => {
-                    ttl => 'PT3600S',
-                    minimum => 'PT3600S',
+                    ttl => 'PT300S',
+                    minimum => 'PT300S',
                     serial => 'datecounter'
                 }
             },
