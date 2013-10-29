@@ -881,6 +881,11 @@ sub Run {
         #
         # Sync ZSK
         #
+        # ods-ksmutil key list -v
+        # softhsm --export --id
+        # softhsm --import --id
+        # ods-ksmutil key import
+        # ods-ksmutil rollover
         
         #
         # Update Zone
