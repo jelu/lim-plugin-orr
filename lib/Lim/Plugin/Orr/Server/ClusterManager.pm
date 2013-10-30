@@ -873,6 +873,14 @@ sub Run {
         #
         # Sync KSK
         #
+        # ods-ksmutil key list -v
+        # softhsm --export --id
+        # softhsm --import --id
+        # ods-ksmutil key import
+        # ods-ksmutil rollover
+        # ods-ksmutil ds-seen old key
+        # wait for new key to be ready
+        # ods-ksmutil ds-seen new key
         
         #
         # Roll ZSK
