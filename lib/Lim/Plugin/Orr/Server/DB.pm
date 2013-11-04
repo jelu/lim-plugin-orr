@@ -312,7 +312,10 @@ our @__data = (
             module => '/usr/lib/softhsm/libsofthsm.so',
             token_label => 'OpenDNSSEC',
             pin => '1234',
-            skip_public_key => 1
+            skip_public_key => 1,
+            initialize => 1,
+            slot => 0,
+            so_pin => '1234'
         })
     ],
     [ 'INSERT INTO cluster_hsm SELECT cluster_uuid, hsm_uuid FROM clusters, hsms' ],
