@@ -91,6 +91,14 @@ sub NODE_STATE_ONLINE   (){ 2 }
 sub NODE_STATE_FAILURE  (){ 3 }
 sub NODE_STATE_STANDBY  (){ 4 }
 sub NODE_STATE_DISABLED (){ 5 }
+our %NODE_STATE = (
+    NODE_STATE_UNKNOWN() => 'UNKNOWN',
+    NODE_STATE_OFFLINE() => 'OFFLINE',
+    NODE_STATE_ONLINE() => 'ONLINE',
+    NODE_STATE_FAILURE() => 'FAILURE',
+    NODE_STATE_STANDBY() => 'STANDBY',
+    NODE_STATE_DISABLED() => 'DISABLED'
+);
 
 =head1 METHODS
 
@@ -326,6 +334,8 @@ sub Add {
         uri => $args{uri},
         mode => $args{mode},
         state => NODE_STATE_UNKNOWN,
+        state_timestamp => time,
+        log => [],
         node => $node,
         remove => 0,
         cache => {},
@@ -609,30 +619,44 @@ sub ReloadOpenDNSSEC {
     }
 }
 
+=item NodeLog
+
+=cut
+
+sub NodeLog {
+    my $self = shift;
+    my $uuid = shift;
+    my $log = join('', @_);
+
+    unless (exists $self->{node}->{$uuid}) {
+        confess __PACKAGE__, ': Node ', $uuid, ' does not exists';
+    }
+    
+    Lim::INFO and $self->{logger}->info($uuid, ': ', $log);
+    push(@{$self->{node}->{$uuid}->{log}}, time, $log);
+}
+
 =item NodeState
 
 =cut
 
 sub NodeState {
-    my ($self, $uuid, $state) = @_;
+    my $self = shift;
+    my $uuid = shift;
+    my $state = shift;
     
     unless (exists $self->{node}->{$uuid}) {
         confess __PACKAGE__, ': Node ', $uuid, ' does not exists';
     }
     
     if (defined $state) {
-        my $match;
-        foreach ((NODE_STATE_OFFLINE, NODE_STATE_ONLINE, NODE_STATE_FAILURE ,NODE_STATE_STANDBY, NODE_STATE_DISABLED)) {
-            if ($_ == $state) {
-                $match = 1;
-                last;
-            }
-        }
-        unless ($match) {
+        unless (exists $NODE_STATE{$state}) {
             confess __PACKAGE__, ': Unknown state ', $state;
         }
         
+        $self->NodeLog($uuid, 'State ', $NODE_STATE{$state}, ': ', @_);
         $self->{node}->{$uuid}->{state} = $state;
+        $self->{node}->{$uuid}->{state_timestamp} = time;
     }
     
     $self->{node}->{$uuid}->{state};
