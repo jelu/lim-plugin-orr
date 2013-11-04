@@ -136,6 +136,8 @@ our %CLUSTER_STATE = (
 
 =item CLUSTER_MODE_BALANCE
 
+=back
+
 =cut
 
 sub CLUSTER_MODE_BACKUP   (){ 0 }
@@ -146,6 +148,48 @@ our %CLUSTER_MODE = (
     CLUSTER_MODE_FAILOVER() => 'FAILOVER',
     CLUSTER_MODE_BALANCE() => 'BALANCE'
 );
+
+=head1 ZONE STATES
+
+=over 4
+
+=item ZONE_STATE_INITIALIZING
+
+=item ZONE_STATE_UPDATING
+
+=item ZONE_STATE_OK
+
+=item ZONE_STATE_FAILURE
+
+=back
+
+=cut
+
+sub ZONE_STATE_INITIALIZING (){ 0 }
+sub ZONE_STATE_UPDATING     (){ 1 }
+sub ZONE_STATE_OK           (){ 2 }
+sub ZONE_STATE_FAILURE      (){ 3 }
+
+=head1 ZONE KEY STATES
+
+=over 4
+
+=item ZONE_KEY_STATE_INITIALIZING
+
+=item ZONE_KEY_STATE_SYNCING
+
+=item ZONE_KEY_STATE_FAILURE
+
+=item ZONE_KEY_STATE_OK
+
+=back
+
+=cut
+
+sub ZONE_KEY_STATE_INITIALIZING (){ 0 }
+sub ZONE_KEY_STATE_SYNCING      (){ 1 }
+sub ZONE_KEY_STATE_FAILURE      (){ 2 }
+sub ZONE_KEY_STATE_OK           (){ 3 }
 
 =head1 METHODS
 
@@ -1010,7 +1054,14 @@ sub ZoneAdd {
         }
         
         my $zone = {
-            cache => {}
+            cache => {},
+            state => ZONE_STATE_INITIALIZING,
+            ksk => {
+                state => ZONE_KEY_STATE_INITIALIZING
+            },
+            zsk => {
+                state => ZONE_KEY_STATE_INITIALIZING
+            }
         };
         
         foreach my $k (qw(uuid name input_type input_data)) {
