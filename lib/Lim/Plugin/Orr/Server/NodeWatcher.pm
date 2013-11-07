@@ -37,6 +37,23 @@ our $VERSION = $Lim::Plugin::Orr::VERSION;
 
 our $TIMER_INTERVAL_MAX = 10;
 our $NODE_REPING = 30;
+our $SOFTWARE_VERSION = {
+    plugin => {
+        Agent => { min => '0.19', max => '0.19', required => 1 },
+        OpenDNSSEC => { min => '0.14', max => '0.14', required => 1 },
+        SoftHSM => { min => '0.14', max => '0.14', required => 0 },
+        DNS => { min => '0.12', max => '0.12', required => 0 },
+    },
+    program => {
+        'ods-control' => { min => '1', max => '1', required => 1 },
+        'ods-signerd' => { min => '1.3.14', max => '1.3.15', required => 1 },
+        'ods-signer' => { min => '1.3.14', max => '1.3.15', required => 1 },
+        'ods-enforcerd' => { min => '1.3.14', max => '1.3.15', required => 1 },
+        'ods-ksmutil' => { min => '1.3.14', max => '1.3.15', required => 1 },
+        'ods-hsmutil' => { min => '1.3.14', max => '1.3.15', required => 0 },
+        'softhsm' => { min => '1.3.3', max => '1.3.5', required => 0 }
+    }
+};
 
 =head1 SYNOPSIS
 
@@ -370,18 +387,13 @@ sub Versions {
         confess __PACKAGE__, ': Missing cb or is not CODE';
     }
     
-    my $result = {};
     my $nodes = 0;
     foreach my $node (values %{$self->{node}}) {
-        my $uuid = $node->{uuid};
-
         unless ($node->{state} == NODE_STATE_ONLINE or $node->{state} == NODE_STATE_STANDBY) {
-            $result->{$uuid} = undef;
             next;
         }
         
         if (exists $node->{cache}->{versions}) {
-            $result->{$uuid} = $node->{cache}->{versions};
             next;
         }
         
@@ -389,16 +401,53 @@ sub Versions {
             my ($version) = @_;
             
             if (ref($version) eq 'HASH') {
-                $node->{cache}->{versions} = $result->{$uuid} = $version;
+                foreach my $what (qw(plugin program)) {
+                    unless (exists $version->{$what} and ref($version->{$what}) eq 'HASH') {
+                        $self->NodeState($node, NODE_STATE_FAILURE, 'Unable to retrieve versions of software running on node: structure for ', $what, ' is invalid');
+                        $version = undef;
+                        last;
+                    }
+                    
+                    foreach my $entry (keys %{$SOFTWARE_VERSION->{$what}}) {
+                        unless (exists $version->{$what}->{$entry}) {
+                            if ($SOFTWARE_VERSION->{$what}->{$entry}->{required}) {
+                                $self->NodeState($node, NODE_STATE_FAILURE, 'Missing required software ', $entry);
+                                $version = undef;
+                                last;
+                            }
+                            next;
+                        }
+                        
+                        if (($SOFTWARE_VERSION->{$what}->{$entry}->{min} gt
+                             $version->{$what}->{$entry}) or
+                            ($SOFTWARE_VERSION->{$what}->{$entry}->{max} lt
+                             $version->{$what}->{$entry}))
+                        {
+                            $self->NodeState($node, NODE_STATE_FAILURE, 'Software ', $entry, ' version ', $version->{$what}->{$entry},
+                                ' is not supported. Supported are minimum version ', $SOFTWARE_VERSION->{$what}->{$entry}->{min},
+                                ' and maximum version ', $SOFTWARE_VERSION->{$what}->{$entry}->{max});
+                            $version = undef;
+                            last;
+                        }
+                    }
+                    
+                    unless (defined $version) {
+                        last;
+                    }
+                }
+                
+                if (defined $version) {
+                    $self->NodeLog($node, 'Versions verified');
+                    $node->{cache}->{versions} = $version;
+                }
             }
             else {
-                $node->{state} = NODE_STATE_FAILURE;
-                $result->{$uuid} = undef;
+                $self->NodeState($node, NODE_STATE_FAILURE, 'Unable to retrieve version');
             }
             $nodes--;
             
             unless ($nodes) {
-                $cb->($result);
+                $cb->();
             }
         }]);
         $self->ResetInterval;
@@ -406,7 +455,7 @@ sub Versions {
     }
     
     unless ($nodes) {
-        $cb->($result);
+        $cb->();
     }
 }
 
@@ -424,35 +473,29 @@ sub SetupHSM {
         confess __PACKAGE__, ': Missing data';
     }
     
-    my $result = {};
     my $nodes = 0;
     foreach my $node (values %{$self->{node}}) {
-        my $uuid = $node->{uuid};
-
         unless ($node->{state} == NODE_STATE_ONLINE or $node->{state} == NODE_STATE_STANDBY) {
-            $result->{$uuid} = undef;
             next;
         }
         
         if (exists $node->{cache}->{hsm_setup}) {
-            $result->{$uuid} = 0;
             next;
         }
         
         push(@{$node->{queue}}, ['SetupHSM', sub {
-            my ($successful, $changed) = @_;
+            my ($successful) = @_;
             
             if ($successful) {
-                $node->{cache}->{hsm_setup} = $result->{$uuid} = defined $changed ? 1 : 0;
+                $node->{cache}->{hsm_setup} = 1;
             }
             else {
-                $node->{state} = NODE_STATE_FAILURE;
-                $result->{$uuid} = undef;
+                $self->NodeState($node, NODE_STATE_FAILURE, 'Unable to setup HSM');
             }
             $nodes--;
             
             unless ($nodes) {
-                $cb->($result);
+                $cb->();
             }
         }, $data]);
         $self->ResetInterval;
@@ -460,7 +503,7 @@ sub SetupHSM {
     }
     
     unless ($nodes) {
-        $cb->($result);
+        $cb->();
     }
 }
 
@@ -478,35 +521,29 @@ sub SetupPolicy {
         confess __PACKAGE__, ': Missing data';
     }
     
-    my $result = {};
     my $nodes = 0;
     foreach my $node (values %{$self->{node}}) {
-        my $uuid = $node->{uuid};
-
         unless ($node->{state} == NODE_STATE_ONLINE or $node->{state} == NODE_STATE_STANDBY) {
-            $result->{$uuid} = undef;
             next;
         }
         
         if (exists $node->{cache}->{policy_setup}) {
-            $result->{$uuid} = 0;
             next;
         }
         
         push(@{$node->{queue}}, ['SetupPolicy', sub {
-            my ($successful, $changed) = @_;
+            my ($successful) = @_;
             
             if ($successful) {
-                $node->{cache}->{policy_setup} = $result->{$uuid} = defined $changed ? 1 : 0;
+                $node->{cache}->{policy_setup} = 1;
             }
             else {
-                $node->{state} = NODE_STATE_FAILURE;
-                $result->{$uuid} = undef;
+                $self->NodeState($node, NODE_STATE_FAILURE, 'Unable to setup Policy');
             }
             $nodes--;
             
             unless ($nodes) {
-                $cb->($result);
+                $cb->();
             }
         }, $data]);
         $self->ResetInterval;
@@ -514,7 +551,7 @@ sub SetupPolicy {
     }
     
     unless ($nodes) {
-        $cb->($result);
+        $cb->();
     }
 }
 
@@ -529,35 +566,29 @@ sub StartOpenDNSSEC {
         confess __PACKAGE__, ': Missing cb or is not CODE';
     }
     
-    my $result = {};
     my $nodes = 0;
     foreach my $node (values %{$self->{node}}) {
-        my $uuid = $node->{uuid};
-
         unless ($node->{state} == NODE_STATE_ONLINE or $node->{state} == NODE_STATE_STANDBY) {
-            $result->{$uuid} = undef;
             next;
         }
         
         if (exists $node->{cache}->{running}) {
-            $result->{$uuid} = 0;
             next;
         }
         
         push(@{$node->{queue}}, ['StartOpenDNSSEC', sub {
-            my ($successful, $changed) = @_;
+            my ($successful) = @_;
             
             if ($successful) {
-                $node->{cache}->{running} = $result->{$uuid} = defined $changed ? 1 : 0;
+                $node->{cache}->{running} = 1;
             }
             else {
-                $node->{state} = NODE_STATE_FAILURE;
-                $result->{$uuid} = undef;
+                $self->NodeState($node, NODE_STATE_FAILURE, 'Unable to start up OpenDNSSEC');
             }
             $nodes--;
             
             unless ($nodes) {
-                $cb->($result);
+                $cb->();
             }
         }]);
         $self->ResetInterval;
@@ -565,7 +596,7 @@ sub StartOpenDNSSEC {
     }
     
     unless ($nodes) {
-        $cb->($result);
+        $cb->();
     }
 }
 
@@ -574,40 +605,28 @@ sub StartOpenDNSSEC {
 =cut
 
 sub ReloadOpenDNSSEC {
-    my ($self, $cb, @nodes) = @_;
+    my ($self, $cb) = @_;
     
     unless (ref($cb) eq 'CODE') {
         confess __PACKAGE__, ': Missing cb or is not CODE';
     }
     
-    my $result = {};
     my $nodes = 0;
-    foreach my $uuid (@nodes) {
-        unless (exists $self->{node}->{$uuid}) {
-            $result->{$uuid} = undef;
-            next;
-        }
-        my $node = $self->{node}->{$uuid};
-
+    foreach my $node (values %{$self->{node}}) {
         unless ($node->{state} == NODE_STATE_ONLINE or $node->{state} == NODE_STATE_STANDBY) {
-            $result->{$uuid} = undef;
             next;
         }
         
         push(@{$node->{queue}}, ['ReloadOpenDNSSEC', sub {
             my ($successful) = @_;
             
-            if ($successful) {
-                $result->{$uuid} = 1;
-            }
-            else {
-                $node->{state} = NODE_STATE_FAILURE;
-                $result->{$uuid} = undef;
+            unless ($successful) {
+                $self->NodeState($node, NODE_STATE_FAILURE, 'Unable to reload OpenDNSSEC');
             }
             $nodes--;
             
             unless ($nodes) {
-                $cb->($result);
+                $cb->();
             }
         }]);
         $self->ResetInterval;
@@ -615,7 +634,7 @@ sub ReloadOpenDNSSEC {
     }
     
     unless ($nodes) {
-        $cb->($result);
+        $cb->();
     }
 }
 
@@ -628,11 +647,15 @@ sub NodeLog {
     my $uuid = shift;
     my $log = join('', @_);
 
+    if (ref($uuid) eq 'HASH' and exists $uuid->{uuid}) {
+        $uuid = $uuid->{uuid};
+    }
+    
     unless (exists $self->{node}->{$uuid}) {
         confess __PACKAGE__, ': Node ', $uuid, ' does not exists';
     }
     
-    Lim::INFO and $self->{logger}->info($uuid, ': ', $log);
+    Lim::INFO and $self->{logger}->info('Node ', $uuid, ': ', $log);
     push(@{$self->{node}->{$uuid}->{log}}, time, $log);
 }
 
@@ -644,6 +667,10 @@ sub NodeState {
     my $self = shift;
     my $uuid = shift;
     my $state = shift;
+    
+    if (ref($uuid) eq 'HASH' and exists $uuid->{uuid}) {
+        $uuid = $uuid->{uuid};
+    }
     
     unless (exists $self->{node}->{$uuid}) {
         confess __PACKAGE__, ': Node ', $uuid, ' does not exists';

@@ -37,23 +37,6 @@ See L<Lim::Plugin::Orr> for version.
 
 our $VERSION = $Lim::Plugin::Orr::VERSION;
 our $TIMER_INTERVAL_MAX = 10;
-our $SOFTWARE_VERSION = {
-    plugin => {
-        Agent => { min => '0.19', max => '0.19', required => 1 },
-        OpenDNSSEC => { min => '0.14', max => '0.14', required => 1 },
-        SoftHSM => { min => '0.14', max => '0.14', required => 0 },
-        DNS => { min => '0.12', max => '0.12', required => 0 },
-    },
-    program => {
-        'ods-control' => { min => '1', max => '1', required => 1 },
-        'ods-signerd' => { min => '1.3.14', max => '1.3.15', required => 1 },
-        'ods-signer' => { min => '1.3.14', max => '1.3.15', required => 1 },
-        'ods-enforcerd' => { min => '1.3.14', max => '1.3.15', required => 1 },
-        'ods-ksmutil' => { min => '1.3.14', max => '1.3.15', required => 1 },
-        'ods-hsmutil' => { min => '1.3.14', max => '1.3.15', required => 0 },
-        'softhsm' => { min => '1.3.3', max => '1.3.5', required => 0 }
-    }
-};
 
 =head1 SYNOPSIS
 
@@ -439,85 +422,18 @@ sub Run {
         $self->Log('Fetching version information from nodes');
         $self->{lock} = 1;
         $self->{node_watcher}->Versions(sub {
-            my ($result) = @_;
-            
             unless (defined $self) {
                 return;
             }
             
-            unless (ref($result) eq 'HASH') {
-                $self->State(CLUSTER_STATE_FAILURE, 'Unable to retrieve versions of software running, result set returned is invalid.');
-                $self->{lock} = 0;
-                return;
-            }
-            
-            my $error;
-            foreach my $node_uuid (keys %$result) {
-                unless (defined $result->{$node_uuid}) {
-                    $self->Log('Unable to retrieve version for node ', $node_uuid);
-                    $error++;
-                    next;
-                }
-                unless (ref($result->{$node_uuid}) eq 'HASH') {
-                    $self->State(CLUSTER_STATE_FAILURE, 'Unable to retrieve versions of software running on node ', $node_uuid, ': structure is invalid');
-                    $self->{lock} = 0;
-                    return;
-                }
-                my $node = $result->{$node_uuid};
-                
-                foreach my $what (qw(plugin program)) {
-                    unless (exists $node->{$what} and ref($node->{$what}) eq 'HASH') {
-                        $self->State(CLUSTER_STATE_FAILURE, 'Unable to retrieve versions of software running on node ', $node_uuid, ': structure for ', $what, ' is invalid');
-                        $self->{lock} = 0;
-                        return;
-                    }
-                    
-                    foreach my $entry (keys %{$SOFTWARE_VERSION->{$what}}) {
-                        unless (exists $node->{$what}->{$entry}) {
-                            if ($SOFTWARE_VERSION->{$what}->{$entry}->{required}) {
-                                $self->Log('Missing required software ', $entry, ' for node ', $node_uuid);
-                                $self->{node_watcher}->NodeState($node_uuid, NODE_STATE_FAILURE);
-                                $error++;
-                            }
-                            next;
-                        }
-                        
-                        if (($SOFTWARE_VERSION->{$what}->{$entry}->{min} gt
-                             $node->{$what}->{$entry}) or
-                            ($SOFTWARE_VERSION->{$what}->{$entry}->{max} lt
-                             $node->{$what}->{$entry}))
-                        {
-                            $self->Log('Software ', $entry, ' version ', $node->{$what}->{$entry}, ' on node ', $node_uuid,
-                                ' is not supported. Supported are minimum version ', $SOFTWARE_VERSION->{$what}->{$entry}->{min},
-                                ' and maximum version ', $SOFTWARE_VERSION->{$what}->{$entry}->{max});
-                            $self->{node_watcher}->NodeState($node_uuid, NODE_STATE_FAILURE);
-                            $error++;
-                        }
-                    }
-                }
-            }
-            $self->{cache}->{version} = $result;
-            if ($error) {
-                $self->Log('Version information problems on ', $error, ' nodes');
-            }
-            else {
-                $self->Log('Version information correct and supported');
-            }
-            
-            $self->ResetInterval;
-            $self->Timer;
+            $self->{cache}->{version} = 1;
+            $self->Log('Version information fetched');
             $self->{lock} = 0;
+            $self->ResetInterval;
         });
         $self->ResetInterval;
         $self->Timer;
         return;
-    }
-    
-    #
-    # Setup cache for nodes that will need reload later
-    #
-    unless (exists $self->{cache}->{reload}) {
-        $self->{cache}->{reload} = {};
     }
     
     #
@@ -537,54 +453,21 @@ sub Run {
 
             $self->{lock} = 1;
             $self->{node_watcher}->SetupHSM(sub {
-                my ($result) = @_;
-                
                 unless (defined $self) {
                     return;
                 }
                 
-                $self->{cache}->{hsm_setup}->{$hsm} = $result;
+                $self->{cache}->{hsm_setup}->{$hsm} = 1;
                 $self->{lock} = 0;
+                $self->ResetInterval;
             }, $hsm->{data});
             $self->ResetInterval;
             $self->Timer;
             return;
         }
 
-        my $error;
-        foreach my $hsm (@{$self->{hsms}}) {
-            my $result = $self->{cache}->{hsm_setup}->{$hsm};
-            
-            unless (ref($result) eq 'HASH') {
-                $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup HSM ', $hsm->{uuid} ,', result set returned is invalid.');
-                $self->{lock} = 0;
-                return;
-            }
-            
-            foreach my $node_uuid (keys %$result) {
-                unless (defined $result->{$node_uuid}) {
-                    $self->Log('Unable to setup HSM ',  $hsm->{uuid}, ' on node ', $node_uuid);
-                    $error++;
-                    next;
-                }
-                
-                if ($result->{$node_uuid}) {
-                    $self->{cache}->{reload}->{$node_uuid} = 1;
-                    $self->{cache}->{hsms_setup} = 1;
-                }
-            }
-        }
-        
-        unless (exists $self->{cache}->{hsms_setup}) {
-            $self->{cache}->{hsms_setup} = 0;
-        }
-
-        if ($error) {
-            $self->Log('HSMs setup problems on ', $error, ' nodes');
-        }
-        else {
-            $self->Log('All HSMs setup ok');
-        }
+        $self->{cache}->{hsms_setup} = 1;
+        $self->Log('HSM setup done');
     }
     
     #
@@ -595,43 +478,12 @@ sub Run {
 
         $self->{lock} = 1;
         $self->{node_watcher}->SetupPolicy(sub {
-            my ($result) = @_;
-            
             unless (defined $self) {
                 return;
             }
             
-            unless (ref($result) eq 'HASH') {
-                $self->State(CLUSTER_STATE_FAILURE, 'Unable to setup Policy ',  $self->{policy}->{uuid}, ', result set returned is invalid.');
-                $self->{lock} = 0;
-                return;
-            }
-            
-            my $error;
-            foreach my $node_uuid (keys %$result) {
-                unless (defined $result->{$node_uuid}) {
-                    $self->Log('Unable to setup Policy ', $self->{policy}->{uuid}, ' on node ', $node_uuid);
-                    $error++;
-                    next;
-                }
-                
-                if ($result->{$node_uuid}) {
-                    $self->{cache}->{reload}->{$node_uuid} = 1;
-                    $self->{cache}->{policy_setup} = 1;
-                }
-            }
-            
-            unless (exists $self->{cache}->{policy_setup}) {
-                $self->{cache}->{policy_setup} = 0;
-            }
-
-            if ($error) {
-                $self->Log('Policy setup problems on ', $error, ' nodes');
-            }
-            else {
-                $self->Log('Policy setup ok');
-            }
-
+            $self->{cache}->{policy_setup} = 1;
+            $self->Log('Policy setup done');
             $self->{lock} = 0;
             $self->ResetInterval;
         }, $self->{policy}->{data});
@@ -639,7 +491,7 @@ sub Run {
         $self->Timer;
         return;
     }
-
+    
     # TODO need to handle OpenDNSSEC installations that are not setup yet
     
     #
@@ -650,35 +502,12 @@ sub Run {
 
         $self->{lock} = 1;
         $self->{node_watcher}->StartOpenDNSSEC(sub {
-            my ($result) = @_;
-            
             unless (defined $self) {
                 return;
             }
             
-            unless (ref($result) eq 'HASH') {
-                $self->State(CLUSTER_STATE_FAILURE, 'Unable to verify or start OpenDNSSEC, result set returned is invalid.');
-                $self->{lock} = 0;
-                return;
-            }
-            
-            my $error;
-            foreach my $node_uuid (keys %$result) {
-                unless (defined $result->{$node_uuid}) {
-                    $self->Log('Unable to verify or start OpenDNSSEC on node ', $node_uuid);
-                    $error++;
-                }
-            }
-            
             $self->{cache}->{running} = 1;
-            
-            if ($error) {
-                $self->Log('Verifying or starting OpenDNSSEC problems on ', $error, ' nodes')
-            }
-            else {
-                $self->Log('OpenDNSSEC start ok');
-            }
-            
+            $self->Log('OpenDNSSEC start up done');
             $self->{lock} = 0;
             $self->ResetInterval;
         });
@@ -690,46 +519,26 @@ sub Run {
     #
     # Reload OpenDNSSEC on nodes that need it
     #
-    if (%{$self->{cache}->{reload}}) {
+    unless ($self->{cache}->{reload}) {
         $self->Log('Reload OpenDNSSEC on nodes that need it');
 
         $self->{lock} = 1;
         $self->{node_watcher}->ReloadOpenDNSSEC(sub {
-            my ($result) = @_;
-            
             unless (defined $self) {
                 return;
             }
             
-            unless (ref($result) eq 'HASH') {
-                $self->State(CLUSTER_STATE_FAILURE, 'Unable to reload OpenDNSSEC, result set returned is invalid.');
-                $self->{lock} = 0;
-                return;
-            }
-            
-            my $error;
-            foreach my $node_uuid (keys %$result) {
-                unless (defined $result->{$node_uuid}) {
-                    $self->Log('Unable to reload OpenDNSSEC on node ', $node_uuid);
-                    $error++;
-                }
-            }
-            
-            if ($error) {
-                $self->Log('Reload problems on ', $error, ' nodes');
-            }
-            else {
-                $self->Log('Reload ok');
-            }
-            
+            $self->{cache}->{reload} = 1;
+            $self->Log('Reload done');
             $self->{lock} = 0;
             $self->ResetInterval;
-        }, keys %{$self->{cache}->{reload}});
-        $self->{cache}->{reload} = {};
+        });
         $self->ResetInterval;
         $self->Timer;
         return;
     }
+    
+    return;
 
     #
     # Calculate cluster state based on information gathered so far
@@ -961,7 +770,7 @@ sub Log {
     my $self = shift;
     my $log = join('', @_);
     
-    Lim::INFO and $self->{logger}->info($self->{uuid}, ': ', $log);
+    Lim::INFO and $self->{logger}->info('Cluster ', $self->{uuid}, ': ', $log);
     push(@{$self->{log}}, time, $log);
 }
 

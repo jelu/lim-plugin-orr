@@ -60,7 +60,8 @@ sub new {
         logger => Log::Log4perl->get_logger,
         last_call => 0,
         queue => [],
-        lock => 0
+        lock => 0,
+        reload => 0
     };
     bless $self, $class;
 
@@ -406,6 +407,11 @@ sub SetupHSM {
     unless (ref($data) eq 'HASH') {
         confess 'HSM json data is not HASH';
     }
+    my ($initialize, $slot, $so_pin) = (
+        delete $data->{initialize},
+        delete $data->{slot},
+        delete $data->{so_pin}
+    );
 
     unless ($self->LockOrQueue('SetupHSM', $cb, $data)) {
         return;
@@ -452,9 +458,10 @@ sub SetupHSM {
                         
                         if ($call->Successful) {
                             $self->{last_call} = time;
+                            $self->{reload} = 1;
                             Lim::DEBUG and $self->{logger}->debug('Repository ', $data->{name}, ' updated');
                             undef $@;
-                            $cb->(1, 1);
+                            $cb->(1);
                         }
                         else {
                             $@ = $call->Error;
@@ -487,9 +494,10 @@ sub SetupHSM {
                     
                     if ($call->Successful) {
                         $self->{last_call} = time;
+                        $self->{reload} = 1;
                         Lim::DEBUG and $self->{logger}->debug('Repository ', $data->{name}, ' created');
                         undef $@;
-                        $cb->(1, 1);
+                        $cb->(1);
                     }
                     else {
                         $@ = $call->Error;
@@ -583,9 +591,10 @@ sub SetupPolicy {
                         
                         if ($call->Successful) {
                             $self->{last_call} = time;
+                            $self->{reload} = 1;
                             Lim::DEBUG and $self->{logger}->debug('Policy ', $data->{name}, ' updated');
                             undef $@;
-                            $cb->(1, 1);
+                            $cb->(1);
                         }
                         else {
                             $@ = $call->Error;
@@ -618,9 +627,10 @@ sub SetupPolicy {
                     
                     if ($call->Successful) {
                         $self->{last_call} = time;
+                        $self->{reload} = 1;
                         Lim::DEBUG and $self->{logger}->debug('Policy ', $data->{name}, ' created');
                         undef $@;
-                        $cb->(1, 1);
+                        $cb->(1);
                     }
                     else {
                         $@ = $call->Error;
@@ -704,6 +714,11 @@ sub ReloadOpenDNSSEC {
         return;
     }
     
+    unless ($self->{reload}) {
+        $cb->(1);
+        return;
+    }
+    
     my $opendnssec = Lim::Plugin::OpenDNSSEC->Client;
     $opendnssec->UpdateEnforcerUpdate(sub {
         my ($call, $response) = @_;
@@ -712,6 +727,8 @@ sub ReloadOpenDNSSEC {
             undef $opendnssec;
             return;
         }
+        
+        $self->{reload} = 0;
         
         if ($call->Successful) {
             $self->{last_call} = time;
